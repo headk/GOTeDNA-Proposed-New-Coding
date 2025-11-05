@@ -1,0 +1,16 @@
+### Species Richness Plot Rough Copy; Altering base code from: https://luisdva.github.io/rstats/richness/ so that data is extracted from our GOTeDNA data filtered from OBIS (currently known as coreandextensions_filtered)
+
+#Creating a ggplot2 map is static
+#Creating a leaflet map is interactive 
+
+#Load the following packages
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(scico)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(purrr)
+library(smoothr)
+library(robis)
+library(leaflet)
