@@ -1,0 +1,62 @@
+##Pulling data from robis (OBIS) from an example dataset to see if we can move away from the GOTeDNA sample templates set up for the GOTeDNA code
+#Link to example dataset from OBIS: https://obis.org/dataset/3caeb629-da2d-4c1a-8a2e-1fbf39174cfa
+
+#Install package robis
+install.packages("robis")
+
+#load packages
+library(robis)
+library(tidyverse) 
+
+###Example dataset from NOAA: "Potential prey of Rice's whales based on seawater eDNA 2019"
+
+#Get information about the dataset
+ds_id <- dataset(datasetid = "3caeb629-da2d-4c1a-8a2e-1fbf39174cfa")
+
+#Explore extensions (tells you which extensions are available)
+ds_id$extensions[[1]]
+#Output [1] "measurementorfact" "dnaderiveddata"
+
+#join all of the columns together for the original data field and the two extensions
+
+# Pull core + include extensions
+rec <- occurrence(
+  datasetid  = ds_id,
+  extensions = c("MeasurementOrFact", "DNADerivedData")
+)
+
+# Core (1 row per occurrence)
+core <- rec %>%
+  distinct(occurrenceID, .keep_all = TRUE)
+
+# Unnest extensions as separate long tables (ONLY extension cols to avoid dupes)
+mof_only <- unnest_extension(rec, "MeasurementOrFact") %>%
+  mutate(extension = "MeasurementOrFact")
+
+dna_only <- unnest_extension(rec, "DNADerivedData") %>%
+  mutate(extension = "DNADerivedData")
+
+#Join core and extensions to the same dataframe
+mofanddna <- mof_only %>% left_join(dna_only, by = "id")
+coreandextensions <- core %>% left_join(mofanddna, by = "occurrenceID")
+
+#Filter for variables of importance for GOTeDNA
+
+coreandextensions_filtered <- coreandextensions %>%
+  select (
+    materialSampleID, samp_name, eventID, target_gene, target_subfragment,
+    pcr_primer_name_forward, pcr_primer_name_reverse, scientificName, kingdom,
+    phylum, class, order, family, genus, organismQuantity, organismQuantityType,
+    eventDate, year, decimalLatitude, decimalLongitude, otu_class_appr,
+    otu_seq_comp_appr, otu_db, seq_meth, samp_mat_process, size_frac, samp_size,
+    depth, measurementType, measurementValue, measurementUnit, measurementMethod,
+    measurementRemarks
+  )
+
+#Option to write into an excel file
+
+#Write into an excel file for further investigation
+install.packages("writexl")
+library(writexl)
+
+write_xlsx(coreandextensions_filtered, "OBIS_coreandextensions_filtered_Example.xlsx")
