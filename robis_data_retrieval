@@ -54,8 +54,6 @@ coreandextensions_filtered <- coreandextensions %>%
   )
 
 #Option to write into an excel file
-
-#Write into an excel file for further investigation
 install.packages("writexl")
 library(writexl)
 
