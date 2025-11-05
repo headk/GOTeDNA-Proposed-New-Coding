@@ -53,6 +53,10 @@ coreandextensions_filtered <- coreandextensions %>%
     measurementRemarks
   )
 
+#Quality filtering
+coreandextensions_filtered <- coreandextensions_filtered %>%
+  filter(!is.na(materialSampleID))
+
 #Option to write into an excel file
 install.packages("writexl")
 library(writexl)
