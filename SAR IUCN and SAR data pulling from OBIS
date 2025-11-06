@@ -1,4 +1,4 @@
-## Run the code from ___________ first to obtain dataframe "coreandextensions_filtered"
+## Run the code from robis_data_retrieval first to obtain dataframe "coreandextensions_filtered"
 # install.packages("devtools")
 # devtools::install_github("IUCN-UK/iucnredlist")
 library(iucnredlist)
