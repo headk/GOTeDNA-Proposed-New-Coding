@@ -1,0 +1,62 @@
+## Run the code from ___________ first to obtain dataframe "coreandextensions_filtered"
+# install.packages("devtools")
+# devtools::install_github("IUCN-UK/iucnredlist")
+library(iucnredlist)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+
+### filtering SAR and AIS from OBIS-GOTeDNA format
+#Get list of Red list species names and keep only rows for those species in main dataframe
+
+ds_id <- "3caeb629-da2d-4c1a-8a2e-1fbf39174cfa"
+
+# Species checklist limited to IUCN Red List taxa
+rl_species <- robis::checklist(datasetid = ds_id, redlist = TRUE) %>%
+  distinct(scientificName) %>%
+  arrange(scientificName)
+
+# If you already built `coreandextensions_filtered`, keep only rows for those species:
+coreandextensions_redlist <- coreandextensions_filtered %>%
+  semi_join(rl_species, by = "scientificName")
+
+## Add IUCN Red List Category linkage
+
+# Must obtain an API key from IUCN - I will use a personal one for now
+# How to cite the IUCN Red List API: "IUCN 2025. IUCN Red List of Threatened Species. Version 2025-2 <www.iucnredlist.org>"
+# The API token affiliated with my (Kayley Head) government email: AJJsM1ZzogfQeLd4gsp6LB2cZrtLWuzMF958
+# Initialize the API with your API key
+api <- init_api("AJJsM1ZzogfQeLd4gsp6LB2cZrtLWuzMF958")
+
+View(rl_species) #This is to tell you which species are redlisted in your dataset
+
+# Get all historic and latest assessments for each species (not case-sensitive)
+redlist_sp1 <- assessments_by_name(api, genus = "Balistes", species = "capriscus")
+redlist_sp2 <- assessments_by_name(api, genus = "Hyporthodus", species = "flavolimbatus")
+redlist_sp3 <- assessments_by_name(api, genus = "Lopholatilus", species = "chamaeleonticeps")
+redlist_sp4 <- assessments_by_name(api, genus = "Lutjanus", species = "campechanus")
+
+redlist_all <- bind_rows(
+  redlist_sp1,
+  redlist_sp2,
+  redlist_sp3,
+  redlist_sp4
+)
+
+# Filter by the most recent listing and for global category status, as done by the UNESCO eDNA dashboard
+redlist_all <- redlist_all %>%
+  filter(latest == TRUE, scopes_description_en == "Global")
+
+coreandextensions_redlist_cat <- left_join(coreandextensions_redlist, redlist_all, by = c("scientificName" = "taxon_scientific_name"))
+---
+## Filter Maritime AIS from 'scientificName' column
+# Current names only represent what is found in "Aquatic invasive species : identification booklet of marine species in the Maritime Provinces of Canada"
+# Contact Claudio Debaco to obtain more names of invasive species and watchlist species (potential AIS)
+
+AIS <- coreandextensions_filtered %>%
+  filter(scientificName %in% c("Codium fragile", "Carcinus maenas", "Hemigrapsus sanguineus", "Caprella mutica",
+                               "Membranipora membranacea", "Ciona intestinalis", "Styela clava", "Ascidiella aspersa",
+                               "Botryllus schlosseri", "Botrylloides violaceus", "Didemnum vexillum", "Diplosoma listerianum"
+                               )
+         )
