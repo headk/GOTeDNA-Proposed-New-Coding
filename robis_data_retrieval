@@ -47,7 +47,7 @@ coreandextensions_filtered <- coreandextensions %>%
     materialSampleID, samp_name, eventID, target_gene, target_subfragment,
     pcr_primer_name_forward, pcr_primer_name_reverse, scientificName, kingdom,
     phylum, class, order, family, genus, organismQuantity, organismQuantityType,
-    eventDate, year, decimalLatitude, decimalLongitude, otu_class_appr,
+    eventDate, year, month, decimalLatitude, decimalLongitude, otu_class_appr,
     otu_seq_comp_appr, otu_db, seq_meth, samp_mat_process, size_frac, samp_size,
     depth, measurementType, measurementValue, measurementUnit, measurementMethod,
     measurementRemarks
