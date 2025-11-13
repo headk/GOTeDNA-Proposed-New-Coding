@@ -1,0 +1,415 @@
+#How to retrieve data from 'rgbif' using the two datasets from Nick Jefferey 2019 Eelgrass data
+
+##Pulling data from rgbif (GBIF) from two dfo datasets (2019 Eelgrass data; 16S, 12S) to see if we can move away from the GOTeDNA sample templates set up for the GOTeDNA code
+#Link to example dataset from GBIF: https://www.gbif.org/dataset/681b4418-91d1-45c2-8279-281a2d56cc76 ; https://www.gbif.org/dataset/7da30e41-68e0-49b5-ada7-bd289f08a1c3
+
+#Install package rgbif
+install.packages("rgbif")
+
+#load packages
+library(rgbif)
+library(dplyr)
+library(tidyr)
+library(readr)
+
+###GBIF Example dataset from DFO: "Fish community surveys in eelgrass beds using both eDNA metabarcoding and seining: implications for biodiversity monitoring in the coastal zone"
+## Dataset 1: 16s gene - "7da30e41-68e0-49b5-ada7-bd289f08a1c3"
+## Dataset 2: 12s gene - "681b4418-91d1-45c2-8279-281a2d56cc76"
+
+#Provide your account credentials
+options(gbif_user = "YOUR_GBIF_USERNAME")
+options(gbif_email = "YOUR_EMAIL@example.com")
+options(gbif_pwd = "YOUR_GBIF_PASSWORD")
+
+# Start a download job for the dataset
+req <- occ_download(
+  pred("datasetKey", "7da30e41-68e0-49b5-ada7-bd289f08a1c3")
+)
+
+req
+#<<gbif download>>
+#Your download is being processed by GBIF:
+#  https://www.gbif.org/occurrence/download/0027307-251025141854904
+#Most downloads finish within 15 min.
+#Check status with
+occ_download_wait('0027307-251025141854904')
+#After it finishes, use
+d <- occ_download_get('0027307-251025141854904') %>%
+  occ_download_import()
+#to retrieve your download.
+#Download Info:
+#  Username: kayleyhead
+#  E-mail: kayley.head@dfo-mpo.gc.ca
+#  Format: DWCA
+#  Download key: 0027307-251025141854904
+#  Created: 2025-11-11T17:32:08.836+00:00
+#  Citation Info:
+#  Please always cite the download DOI when using this data.
+#  https://www.gbif.org/citation-guidelines
+#  DOI: 10.15468/dl.bekxhp
+#  Citation:
+#  GBIF Occurrence Download https://doi.org/10.15468/dl.bekxhp Accessed from R via rgbif (https://github.com/ropensci/rgbif) on 2025-11-11
+
+#View the download of the core occurrence table to see what you are working with
+View(d)
+
+#Look for and inspect extensions
+zip_path  <- "C:/Users/HEADK/Documents/OBIS_Databasing_eDNA_data/0027307-251025141854904.zip"
+unzip_dir <- "C:/Users/HEADK/Documents/OBIS_Databasing_eDNA_data/gbif_0027307"
+
+list.files(unzip_dir)
+#[1] "citations.txt"  "dataset"        "meta.xml"       "metadata.xml"
+#[5] "multimedia.txt" "occurrence.txt" "rights.txt"     "verbatim.txt"
+
+# Read txt files
+occ     <- read_tsv(file.path(unzip_dir, "occurrence.txt"))
+verb    <- read_tsv(file.path(unzip_dir, "verbatim.txt"))
+media   <- read_tsv(file.path(unzip_dir, "multimedia.txt"))
+rights  <- read_tsv(file.path(unzip_dir, "rights.txt"))
+cites   <- read_tsv(file.path(unzip_dir, "citations.txt"))
+
+#Look at the column names within each txt file
+colnames(occ) #important
+colnames(verb) #important
+colnames(media) #contains no information, not important
+colnames(rights) #contains title of data, not important
+colnames(cites) #contains citation, not important
+
+#Compare overlapping columns
+intersect(names(occ), names(verb))
+
+#see columns unique to each file
+setdiff(names(verb), names(occ))    # raw provider fields not in core
+setdiff(names(occ), names(verb))    # standardized fields created by GBIF
+
+#Look at the information in each column without NA values - creates new dataframe
+occ_nonempty  <- occ  %>% select(where(~ !all(is.na(.))))
+verb_nonempty <- verb %>% select(where(~ !all(is.na(.))))
+
+intersect(names(occ_nonempty), names(verb_nonempty))
+setdiff(names(verb_nonempty), names(occ_nonempty))    # raw provider fields not in core
+setdiff(names(occ_nonempty), names(verb_nonempty))    # standardized fields created by GBIF
+
+#View column names that contain information (no NA values)
+names(occ)[sapply(occ, function(x) !all(is.na(x)))]
+names(verb)[sapply(verb, function(x) !all(is.na(x)))]
+
+##Concluded that all data within the verbatim df is in the occupancy dataframe, except for class
+#Next steps, view columns with information in the occ dataframe and see what is missing that is of value
+
+View(occ_nonempty)
+
+###Thinking out loud
+#I need to view the sample names I have so I can match them with the data in the occ_nonempty column
+# Can confirm that I can match the samples
+
+#I need to create the two extensions as .txt files to give to Anne-Marie (and let her know the class column is missing in occ, but present in verb files)
+##See r code where I create the dataframes for each                                                         - START HERE!!!
+
+occ_df <- occ %>%
+  mutate(
+    associatedSequences   = NA_character_,
+    basisOfRecord         = "MaterialSample",
+    brackish              = NA_character_,
+    class                 = class,          # if you have it in occ
+    classid               = NA_character_,
+    country               = countryCode,    # from occ
+    datasetID             = datasetID,      # or NA_character_ if missing
+    decimalLatitude       = decimalLatitude,
+    decimalLongitude      = decimalLongitude,
+    depth                 = NA_character_,
+    # if eventDate is already in occ, this keeps it:
+    eventDate             = eventDate,
+    eventID               = eventID,
+    family                = family,
+    familyid              = NA_character_,
+    geodeticDatum         = NA_character_,
+    gigaclass             = NA_character_,
+    gigaclassid           = NA_character_,
+    identificationRemarks = identificationRemarks,
+    identificationReferences = NA_character_,
+    infraphylum           = NA_character_,
+    infraphylumid         = NA_character_,
+    institutionID         = institutionID,
+    kingdom               = kingdom,
+    kingdomid             = NA_character_,
+    language              = "EN",
+    license               = license,
+    locality              = locality,
+    marine                = NA_character_,
+    materialSampleID      = materialSampleID,
+    maximumDepthInMeters  = NA_character_,
+    minimumDepthInMeters  = NA_character_,
+    modified              = modified,
+    occurrenceID          = occurrenceID,
+    occurrenceStatus      = occurrenceStatus,
+    order                 = order,
+    orderid               = NA_character_,
+    organismQuantity      = NA_character_,    # or from occ if you have it
+    organismQuantityType  = NA_character_,
+    parentEventID         = parentEventID,
+    parvphylum            = NA_character_,
+    parvphylumid          = NA_character_,
+    phylum                = phylum,
+    phylumid              = NA_character_,
+    recordedBy            = recordedBy,
+    recordedByID          = recordedByID,
+    sampleSizeUnit        = "DNA sequence reads",
+    sampleSizeValue       = sampleSizeValue,   # if present in occ
+    scientificName        = scientificName,
+    scientificNameID      = NA_character_,
+    taxonID               = taxonKey,         # or taxonID if you have it
+    nameAccordingTo       = "WoRMS",
+    taxonConceptID        = NA_character_,
+    subphylum             = NA_character_,
+    subphylumid           = NA_character_,
+    superclass            = NA_character_,
+    superclassid          = NA_character_,
+    taxonRank             = taxonRank,
+    verbatimIdentification = verbatimScientificName,
+    verbatimTaxonRank     = verbatimTaxonRank,
+    waterBody             = waterBody,
+    wrims                 = NA_character_,
+    year                  = year,             # if in occ
+    id                    = NA_character_,               # GBIF internal id if there
+    dataset_id            = NA_character_,
+    node_id               = NA_character_,
+    dropped               = NA_character_,
+    absence               = NA_character_,
+    originalScientificName = NA_character_,
+    aphiaID               = NA_character_,
+    flags                 = NA_character_,
+    bathymetry            = NA_character_,
+    shoredistance         = NA_character_,
+    sst                   = NA_character_,
+    sss                   = NA_character_,
+    genus                 = genus,
+    genusid               = NA_character_,
+    species               = species,          # or NA if not present
+    speciesid             = NA_character_,
+    subfamily             = NA_character_,
+    subfamilyid           = NA_character_,
+    suborder              = NA_character_,
+    suborderid            = NA_character_,
+    category              = NA_character_,
+    hab                   = NA_character_,
+    infraorder            = NA_character_,
+    infraorderid          = NA_character_,
+    megaclass             = NA_character_,
+    megaclassid           = NA_character_,
+    subclass              = NA_character_,
+    subclassid            = NA_character_,
+    superfamily           = NA_character_,
+    superfamilyid         = NA_character_,
+    mof                      = NA_character_,
+    dna                      = NA_character_,
+    date_end                 = NA_character_,
+    date_mid                 = NA_character_,
+    date_start               = NA_character_,
+    date_year                = NA_character_,
+    scientificNameAuthorship = NA_character_
+  )
+
+##Now I want to make sure all of the identifications are linked with WoRMS
+#Do I do that ahead of time? I believe so, refer back to the Python conversion code ##START HERE
+
+
+#DNA derived data
+
+dna_df <- data.frame(
+  id =
+    eventID =
+    occurrenceID =
+    samp_name =
+    project_name =
+    experimental_factor =
+    env_broad_scale =
+    env_local_scale =
+    env_medium =
+    subspecf_gen_lin =
+    ploidy =
+    num_replicons =
+    extrachrom_elements =
+    estimated_size =
+    ref_biomaterial =
+    source_mat_id =
+    pathogenicity =
+    biotic_relationship =
+    specific_host =
+    host_spec_range =
+    host_disease_stat =
+    trophic_level =
+    propagation =
+    encoded_traits =
+    rel_to_oxygen =
+    isol_growth_condt =
+    samp_collec_device =
+    samp_collec_method =
+    samp_mat_process =
+    size_frac =
+    samp_size =
+    samp_vol_we_dna_ext =
+    source_uvig =
+    virus_enrich_appr =
+    nucl_acid_ext =
+    nucl_acid_amp =
+    lib_size =
+    lib_reads_seqd =
+    lib_layout =
+    lib_vector =
+    lib_screen =
+    target_gene =
+    target_subfragment =
+    pcr_primers =
+    mid =
+    adapters =
+    pcr_cond =
+    seq_meth =
+    seq_quality_check =
+    chimera_check =
+    tax_ident =
+    assembly_qual =
+    assembly_name =
+    assembly_software =
+    annot =
+    number_contig =
+    feat_pred =
+    ref_db =
+    sim_search_meth =
+    tax_class =
+    _16s_recover =
+    _16s_recover_software =
+    trnas =
+    trna_ext_software =
+    compl_score =
+    compl_software =
+    compl_appr =
+    contam_score =
+    contam_screen_input =
+    contam_screen_param =
+    decontam_software =
+    sort_tech =
+    single_cell_lysis_appr =
+    single_cell_lysis_prot =
+    wga_amp_appr =
+    wga_amp_kit =
+    bin_param =
+    bin_software =
+    reassembly_bin =
+    mag_cov_software =
+    vir_ident_software =
+    pred_genome_type =
+    pred_genome_struc =
+    detec_type =
+    otu_class_appr =
+    otu_seq_comp_appr =
+    otu_db =
+    host_pred_appr =
+    host_pred_est_acc =
+    url =
+    sop =
+    pcr_primer_forward =
+    pcr_primer_reverse =
+    pcr_primer_name_forward =
+    pcr_primer_name_reverse =
+    pcr_primer_reference =
+    DNA_sequence =
+    concentration =
+    concentrationUnit =
+    methodDeterminationConcentrationAndRatios =
+    ratioOfAbsorbance260_230 =
+    ratioOfAbsorbance260_280 =
+    annealingTemp =
+    annealingTempUnit =
+    probeReporter =
+    probeQuencher =
+    ampliconSize =
+    thresholdQuantificationCycle =
+    baselineValue =
+    quantificationCycle =
+    automaticThresholdQuantificationCycle =
+    automaticBaselineValue =
+    contaminationAssessment =
+    partitionVolume =
+    partitionVolumeUnit =
+    estimatedNumberOfCopies =
+    amplificationReactionVolume =
+    amplificationReactionVolumeUnit =
+    pcr_analysis_software =
+    experimentalVariance =
+    pcr_primer_lod =
+    pcr_primer_loq =
+)
+
+#MeasurementOrFact.csv file prep
+
+mof_df <- data.frame(
+  id =
+    measurementID =
+    occurrenceID =
+    measurementType =
+    measurementTypeID =
+    measurementValue =
+    measurementValueID =
+    measurementAccuracy =
+    measurementUnit =
+    measurementUnitID =
+    measurementDeterminedDate =
+    measurementDeterminedBy =
+    measurementMethod =
+    measurementRemarks =
+)
+
+
+
+
+
+
+
+
+
+
+###Code from OBIS which will be helpful once I create the extensions for GBIF
+#Explore extensions (tells you which extensions are available)
+ds_id$extensions[[1]]
+#Output [1] "measurementorfact" "dnaderiveddata"
+
+#join all of the columns together for the original data field and the two extensions
+
+# Pull core + include extensions
+rec <- occurrence(
+  datasetid  = ds_id,
+  extensions = c("MeasurementOrFact", "DNADerivedData")
+)
+
+# Core (1 row per occurrence)
+core <- rec %>%
+  distinct(occurrenceID, .keep_all = TRUE)
+
+# Unnest extensions as separate long tables (ONLY extension cols to avoid dupes)
+mof_only <- unnest_extension(rec, "MeasurementOrFact") %>%
+  mutate(extension = "MeasurementOrFact")
+
+dna_only <- unnest_extension(rec, "DNADerivedData") %>%
+  mutate(extension = "DNADerivedData")
+
+#Join core and extensions to the same dataframe
+mofanddna <- mof_only %>% left_join(dna_only, by = "id")
+coreandextensions <- core %>% left_join(mofanddna, by = "occurrenceID")
+
+#Filter for variables of importance for GOTeDNA
+
+coreandextensions_filtered <- coreandextensions %>%
+  select (
+    materialSampleID, samp_name, eventID, target_gene, target_subfragment,
+    pcr_primer_name_forward, pcr_primer_name_reverse, scientificName, kingdom,
+    phylum, class, order, family, genus, organismQuantity, organismQuantityType,
+    eventDate, year, decimalLatitude, decimalLongitude, otu_class_appr,
+    otu_seq_comp_appr, otu_db, seq_meth, samp_mat_process, size_frac, samp_size,
+    depth, measurementType, measurementValue, measurementUnit, measurementMethod,
+    measurementRemarks
+  )
+
+#Quality filtering
+coreandextensions_filtered <- coreandextensions_filtered %>%
+  filter(!is.na(materialSampleID))
