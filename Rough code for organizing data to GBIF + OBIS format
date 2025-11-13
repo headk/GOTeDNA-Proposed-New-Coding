@@ -1,3 +1,5 @@
+#The following code is being worked on from "rgbif_practicecode.R" - changes made there will be updated here 
+
 #How to retrieve data from 'rgbif' using the two datasets from Nick Jefferey 2019 Eelgrass data
 
 ##Pulling data from rgbif (GBIF) from two dfo datasets (2019 Eelgrass data; 16S, 12S) to see if we can move away from the GOTeDNA sample templates set up for the GOTeDNA code
