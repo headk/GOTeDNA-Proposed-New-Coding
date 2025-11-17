@@ -2,6 +2,9 @@
 
 #This code is used to extract information from otus.database.fasta.gz files (barque) to obtain the OTUids and sequences for input into the DNA-derived data extension for GBIF/OBIS
 
+#install.packages("BiocManager")
+#BiocManager::install("Biostrings")
+
 library(Biostrings)
 library(stringr)
 library(dplyr)
