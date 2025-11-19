@@ -1,4 +1,4 @@
-#Can edit this file for each dataset to prepare for OBIS submission
+### This code was used to publish version #1.0 of resource dfo_grdi_bof_coi-1 into OBIS
 
 #Install packages and Load libraries
 library(dplyr)
@@ -170,12 +170,24 @@ occurrence <- GOT2_filtered %>%
              sampleSizeValue = sampleSizeValue,
              sampleSizeUnit = sampleSizeUnit,
              occurrenceID = occurrenceID
-      )
+      ),
+    by = "materialSampleID"
     ) %>%
       # Add unique suffix per eventID
       group_by(eventID) %>%
-      mutate(eventID = paste0(eventID, "-", row_number())) %>%
-      ungroup()
+      mutate(
+        row_suffix = row_number(),
+        # make eventID unique
+        eventID = paste0(eventID, "-", row_suffix),
+        # make occurrenceID unique too; if it's NA, build one from dataset + materialSampleID
+        occurrenceID = if_else(
+          is.na(occurrenceID),
+          paste0("DFO-GRDI-BoF:", materialSampleID, "-", row_suffix),
+          paste0(occurrenceID, "-", row_suffix)
+        )
+      ) %>%
+  ungroup() %>%
+  select(-row_suffix)
 
 
 #Look up AphiaID (taxonID) from WoRMS by ScientificName
@@ -265,7 +277,7 @@ occurrence <- occurrence %>%
 #insert select code to clean up columns
 cleaned_occ <- occurrence %>%
   select(
-  eventID, eventDate, year, month, country, decimalLatitude, decimalLongitude, occurrenceID, scientificName, kingdom, phylum, class, order, family, genus,
+  eventID, eventDate, year, month, country, decimalLatitude, decimalLongitude, occurrenceID, materialSampleID, scientificName, kingdom, phylum, class, order, family, genus,
   scientificNameID, taxonID, nameAccordingTo, identificationRemarks, basisOfRecord, organismQuantity,
   organismQuantityType, sampleSizeValue, sampleSizeUnit, associatedSequences
 )
@@ -316,7 +328,7 @@ otu_df
 
 #DNA derived data extension
 
-dna_df <- GOT2_metabar_filtered %>% #START HERE!!!
+dna_df <- GOT2_metabar_filtered %>%
   mutate(
     id = NA_character_,
     eventID = eventID,
@@ -439,7 +451,7 @@ dna_df <- GOT2_metabar_filtered %>% #START HERE!!!
     pcr_primer_lod = NA_character_,
     pcr_primer_loq = NA_character_,
     extension = "DNADerivedData"
-)
+  )
 
 #Link DNA sequences from otu_df
 
@@ -473,6 +485,7 @@ dna_df <- dna_df %>%
          amplificationReactionVolumeUnit,	pcr_analysis_software,	experimentalVariance,	pcr_primer_lod,	pcr_primer_loq
   )
 
+
 #Review files
 View(cleaned_occ)
 View(event)
@@ -481,9 +494,9 @@ View(dna_df)
 setwd("C:/Users/HEADK/Desktop/OBIS_prep")
 
 #Write CSV files for input into OBIS
-write.csv(cleaned_occ, "GRDI_BoF_COI_occurrence.csv")
-write.csv(dna_df, "GRDI_BoF_COI_dnaderiveddata.csv")
-write.csv(event, "GRDI_BoF_event.csv")
+write.csv(cleaned_occ, "GRDI_BoF_COI_occurrence_updated.csv")
+write.csv(dna_df, "GRDI_BoF_COI_dnaderiveddata_updated.csv")
+write.csv(event, "GRDI_BoF_event_updated.csv")
 --
 #Run Quality Control checks
 
@@ -493,9 +506,9 @@ write.csv(event, "GRDI_BoF_event.csv")
 library(obistools)
 library(Hmisc)
 
-occur <- read.csv("GRDI_BoF_COI_occurrence.csv")
-dna <- read.csv("GRDI_BoF_COI_dnaderiveddata.csv")
-event <- read.csv("GRDI_BoF_event.csv")
+occur <- read.csv("GRDI_BoF_COI_occurrence_updated.csv")
+dna <- read.csv("GRDI_BoF_COI_dnaderiveddata_updated.csv")
+event <- read.csv("GRDI_BoF_event_updated.csv")
 
 #Check that the taxa names match with WoRMS
 worms <- match_taxa(unique(occur$scientificName))
@@ -528,9 +541,9 @@ describe(event)
 
 ##Write updated + cleaned files; When confident in the data, write these files and put into OBIS
 #Write CSV files for input into OBIS
-write.csv(occur, "OBIS_GRDI_BoF_COI_occurrence.csv")
-write.csv(dna, "OBIS_GRDI_BoF_COI_dnaderiveddata.csv")
-write.csv(event, "OBIS_GRDI_BoF_event.csv")
+write.csv(occur, "OBIS_GRDI_BoF_COI_occurrence_updated.csv")
+write.csv(dna, "OBIS_GRDI_BoF_COI_dnaderiveddata_updated.csv")
+write.csv(event, "OBIS_GRDI_BoF_event_updated.csv")
 
 ---
 ###Additional checks if you would like
