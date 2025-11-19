@@ -1,39 +1,66 @@
-##Base example for preparing and inputting data into OBIS 
-#This file example uses the GRDI survey data from Iqualuit, Nunavit and prepares it for data entry into OBIS
+#Can edit this file for each dataset to prepare for OBIS submission
 
 #Install packages and Load libraries
 library(dplyr)
+library(stringr)
 library(purrr)
 library(tibble)
 library(worrms)
-library(readxl)
+library(openxlsx)
+library(lubridate)
 
 ##Obtain filled GOTeDNA template and link data to OBIS specific column headers
 
-setwd("C:/Users/HEADK/Desktop")
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
 
-GOT2 <- read_excel("GOTeDNA-2_data.xlsx", sheet = "Sample_Metadata")
-GOT2_metabar <- read_excel("GOTeDNA-2_data.xlsx", sheet = "Sample_Metabarcoding data")
+GOT2 <- read.xlsx("GOTeDNA-2_data.xlsx", sheet = "Sample_Metadata")
+GOT2_metabar <- read.xlsx("GOTeDNA-2_data.xlsx", sheet = "Sample_Metabarcoding data")
 
 #Fix the values in eventDate
 
 GOT2 <- GOT2 %>%
   mutate(
-    eventDate = as.Date(as.numeric(eventDate), origin = "1899-12-30")
-  )
+    # Always work from a character version
+    eventDate_chr = as.character(eventDate),
 
-#Filter for specific samples under materialSampleID column:
+    # Try to interpret as numeric (Excel serial)
+    eventDate_num = suppressWarnings(as.numeric(eventDate_chr)),
+
+    # Fix 2-digit year dates like 21/8/19 -> 21/8/2019
+    eventDate_chr_2y = if_else(
+      str_detect(eventDate_chr, "^\\d{1,2}/\\d{1,2}/\\d{2}$"),
+      sub("(\\d{1,2}/\\d{1,2}/)(\\d{2})$", "\\120\\2", eventDate_chr),
+      NA_character_
+    ),
+
+    eventDate = case_when(
+      # 1) Excel numeric serials (42293 etc.)
+      !is.na(eventDate_num) ~ as.Date(eventDate_num, origin = "1899-12-30"),
+
+      # 2) dd/mm/yy we just expanded to dd/mm/20yy
+      !is.na(eventDate_chr_2y) ~ as.Date(eventDate_chr_2y, format = "%d/%m/%Y"),
+
+      # 3) Normal dd/mm/yyyy strings
+      TRUE ~ as.Date(eventDate_chr, format = "%d/%m/%Y")
+    )
+  ) %>%
+  select(-eventDate_chr, -eventDate_num, -eventDate_chr_2y)
+
+#Filter for data contact
 
 GOT2_filtered <- GOT2 %>%
   filter(
-    (materialSampleID >= 43592 & materialSampleID <= 43623) |
-      (materialSampleID %in% paste0(777:784, "-ENEG"))
+    ownerContact == "anais.lacoursiere@dfo-mpo.gc.ca",
+    materialSampleID >= 43460,
+    materialSampleID <= 43630
   )
 
 GOT2_metabar_filtered <- GOT2_metabar %>%
   filter(
-    (materialSampleID >= 43592 & materialSampleID <= 43623) |
-      (materialSampleID %in% paste0(777:784, "-ENEG"))
+    target_gene == "COI",
+    organismQuantity >= 0,
+    materialSampleID >= 43460,
+    materialSampleID <= 43630
   )
 
 #Set up occurrence dataframe
@@ -46,7 +73,7 @@ occurrence <- GOT2_filtered %>%
       class = NA_character_, #Link to WoRMS
       classid = NA_character_, #Link to WoRMS
       country = "Canada",
-      datasetID = "DFO-GRDI-Iqualuit",
+      datasetID = "DFO-GRDI-BoF",
       decimalLatitude = decimalLatitude,
       decimalLongitude = decimalLongitude,
       depth = sampleDepth,
@@ -120,7 +147,7 @@ occurrence <- GOT2_filtered %>%
       date_end = NA_character_,
       date_mid = NA_character_,
       date_start = NA_character_,
-      date_year = year(eventDate),
+      year = year(eventDate),
       fieldNumber = NA_character_,
       footprintWKT = NA_character_,
       institutionCode = NA_character_,
@@ -144,7 +171,12 @@ occurrence <- GOT2_filtered %>%
              sampleSizeUnit = sampleSizeUnit,
              occurrenceID = occurrenceID
       )
-  )
+    ) %>%
+      # Add unique suffix per eventID
+      group_by(eventID) %>%
+      mutate(eventID = paste0(eventID, "-", row_number())) %>%
+      ungroup()
+
 
 #Look up AphiaID (taxonID) from WoRMS by ScientificName
 
@@ -233,16 +265,13 @@ occurrence <- occurrence %>%
 #insert select code to clean up columns
 cleaned_occ <- occurrence %>%
   select(
-  eventID, eventDate, date_year, month, country, decimalLatitude, decimalLongitude, occurrenceID, scientificName, kingdom, phylum, class, order, family, genus,
+  eventID, eventDate, year, month, country, decimalLatitude, decimalLongitude, occurrenceID, scientificName, kingdom, phylum, class, order, family, genus,
   scientificNameID, taxonID, nameAccordingTo, identificationRemarks, basisOfRecord, organismQuantity,
   organismQuantityType, sampleSizeValue, sampleSizeUnit, associatedSequences
 )
 
 #Create event table
 event <- cleaned_occ %>%
-  mutate(
-    year = date_year
-  ) %>%
   select(
     eventDate, eventID, decimalLatitude, decimalLongitude, year, month, country
   )
@@ -257,7 +286,7 @@ library(stringr)
 library(dplyr)
 library(tidyr)
 
-setwd("R:/Science/CESD/ABL_public/eDNA Results/APC0222/COI-1_Iqaluit_Run02_17-Oct-22/13_otu_database")
+setwd("R:/Science/CESD/ABL_public/eDNA Results/APC0222/COI-1_BoF_Run02_20-Sep-22/13_otu_database")
 
 # 1. Read the OTU database FASTA
 fa <- readDNAStringSet("COI1_mlCOIintF_jgHCO2198.otus.database.fasta.gz")
@@ -287,7 +316,7 @@ otu_df
 
 #DNA derived data extension
 
-dna_df <- GOT2_metabar_filtered %>%
+dna_df <- GOT2_metabar_filtered %>% #START HERE!!!
   mutate(
     id = NA_character_,
     eventID = eventID,
@@ -320,7 +349,7 @@ dna_df <- GOT2_metabar_filtered %>%
     samp_collec_method = NA_character_,
     samp_mat_process = "sterivex filters",
     size_frac = "0.22 micrometer",
-    samp_size = NA_character_,
+    samp_size = "1 L",
     samp_vol_we_dna_ext = NA_character_,
     source_uvig = NA_character_,
     virus_enrich_appr = NA_character_,
@@ -373,7 +402,7 @@ dna_df <- GOT2_metabar_filtered %>%
     pred_genome_struc = NA_character_,
     detec_type = NA_character_,
     otu_class_appr = NA_character_,
-    otu_seq_comp_appr = NA_character_,
+    otu_seq_comp_appr = "[vsearch](https://github.com/torognes/vsearch/releases) v2.14.2+",
     otu_db = "barque v1.7.2 (Mathon et al. (2021))",
     host_pred_appr = NA_character_,
     host_pred_est_acc = NA_character_,
@@ -419,36 +448,54 @@ dna_df <- dna_df %>%
     otu_df %>%
       select(
         scientificName,
-        otu_id,
-        DNA_sequence = sequence
+        seq_id = otu_id,
+        dna_sequence = sequence
       ),
     relationship = "many-to-many"
   )
 
-#Clean up dataframe
-
 dna_df <- dna_df %>%
-  filter(target_gene == "COI", organismQuantity > 0)
+  select(eventID, occurrenceID, samp_name,	project_name,	experimental_factor,	env_broad_scale, env_local_scale,	env_medium,	subspecf_gen_lin,	ploidy,
+         num_replicons,	extrachrom_elements,	estimated_size,	ref_biomaterial,	source_mat_id,	pathogenicity,	biotic_relationship,
+         specific_host,	host_spec_range,	host_disease_stat,	trophic_level,	propagation,	encoded_traits,	rel_to_oxygen,	isol_growth_condt,
+         samp_collec_device,	samp_collec_method,	samp_mat_process,	size_frac,	samp_size,	samp_vol_we_dna_ext,	source_uvig,	virus_enrich_appr,
+         nucl_acid_ext,	nucl_acid_amp,	lib_size,	lib_reads_seqd,	lib_layout,	lib_vector,	lib_screen,	target_gene,	target_subfragment,
+         pcr_primers,	mid,	adapters,	pcr_cond,	seq_meth,	seq_quality_check,	chimera_check,	tax_ident,	assembly_qual,	assembly_name,
+         assembly_software,	annot,	number_contig,	feat_pred,	ref_db,	sim_search_meth,	tax_class,	trnas,	trna_ext_software,
+         compl_score,	compl_software,	compl_appr,	contam_score,	contam_screen_input,	contam_screen_param, decontam_software,	sort_tech,
+         single_cell_lysis_appr,	single_cell_lysis_prot,	wga_amp_appr,	wga_amp_kit,	bin_param,	bin_software,	reassembly_bin,	mag_cov_software,
+         vir_ident_software,	pred_genome_type,	pred_genome_struc,	detec_type,	otu_class_appr,	otu_seq_comp_appr,	otu_db,	host_pred_appr,
+         host_pred_est_acc,	url,	sop, pcr_primer_forward,	pcr_primer_reverse,	pcr_primer_name_forward,	pcr_primer_name_reverse,
+         pcr_primer_reference, seq_id,	dna_sequence,	concentration,	concentrationUnit,	methodDeterminationConcentrationAndRatios,
+         ratioOfAbsorbance260_230,	ratioOfAbsorbance260_280,	annealingTemp,	annealingTempUnit,	probeReporter,	probeQuencher,	ampliconSize,
+         thresholdQuantificationCycle,	baselineValue,	quantificationCycle,	automaticThresholdQuantificationCycle,	automaticBaselineValue,
+         contaminationAssessment,	partitionVolume,	partitionVolumeUnit,	estimatedNumberOfCopies,	amplificationReactionVolume,
+         amplificationReactionVolumeUnit,	pcr_analysis_software,	experimentalVariance,	pcr_primer_lod,	pcr_primer_loq
+  )
 
+#Review files
+View(cleaned_occ)
+View(event)
+View(dna_df)
 --
-setwd("C:/Users/HEADK/Desktop")
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
 
 #Write CSV files for input into OBIS
-write.csv(cleaned_occ, "GRDI_Iqal_COI_occurrence.csv")
-write.csv(dna_df, "GRDI_Iqal_COI_dnaderiveddata.csv")
-write.csv(event, "GRDI_Iqal_event.csv")
+write.csv(cleaned_occ, "GRDI_BoF_COI_occurrence.csv")
+write.csv(dna_df, "GRDI_BoF_COI_dnaderiveddata.csv")
+write.csv(event, "GRDI_BoF_event.csv")
 --
 #Run Quality Control checks
 
-install.packages("devtools")
-devtools::install_github("iobis/obistools")
+#install.packages("devtools")
+#devtools::install_github("iobis/obistools")
 
 library(obistools)
 library(Hmisc)
 
-occur <- read.csv("GRDI_Iquil_occurrence.csv")
-dna <- read.csv("GRDI_Iquil_dnaderiveddata.csv")
-event <- read.csv("GRDI_Iquil_event.csv")
+occur <- read.csv("GRDI_BoF_COI_occurrence.csv")
+dna <- read.csv("GRDI_BoF_COI_dnaderiveddata.csv")
+event <- read.csv("GRDI_BoF_event.csv")
 
 #Check that the taxa names match with WoRMS
 worms <- match_taxa(unique(occur$scientificName))
@@ -465,7 +512,7 @@ View(cf)
 ##Check coordinates
 #plot on map to identify points that appear outside of scope of dataset
 plot_map(event)
-#obistools:plot_map_leaflet() allows you to select data point and identify which row in your data it corresponds to
+plot_map_leaflet(event) #allows you to select data point and identify which row in your data it corresponds to
 
 cd <- check_depth(event, report=T)
 View(cd)
@@ -478,6 +525,12 @@ cee <- check_extension_eventids(event, occur)
 
 #Summary of data quality
 describe(event)
+
+##Write updated + cleaned files; When confident in the data, write these files and put into OBIS
+#Write CSV files for input into OBIS
+write.csv(occur, "OBIS_GRDI_BoF_COI_occurrence.csv")
+write.csv(dna, "OBIS_GRDI_BoF_COI_dnaderiveddata.csv")
+write.csv(event, "OBIS_GRDI_BoF_event.csv")
 
 ---
 ###Additional checks if you would like
@@ -498,4 +551,3 @@ obistools::check_extension_eventids
 
 #Check that eventDate is formatted properly
 obistools::check_eventdate
-
