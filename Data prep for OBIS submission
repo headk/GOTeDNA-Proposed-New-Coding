@@ -1,4 +1,6 @@
-### This code was used to publish version #1.0 of resource dfo_grdi_bof_coi-1 into OBIS
+### This code was used to publish version #1.1 of resource dfo_grdi_bof_coi-1 into OBIS
+
+#Can edit this file for each dataset to prepare for OBIS submission
 
 #Install packages and Load libraries
 library(dplyr)
@@ -16,9 +18,43 @@ setwd("C:/Users/HEADK/Desktop/OBIS_prep")
 GOT2 <- read.xlsx("GOTeDNA-2_data.xlsx", sheet = "Sample_Metadata")
 GOT2_metabar <- read.xlsx("GOTeDNA-2_data.xlsx", sheet = "Sample_Metabarcoding data")
 
-#Fix the values in eventDate
+#Standardize materialSampleID values
 
 GOT2 <- GOT2 %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+GOT2_metabar <- GOT2_metabar %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+#Filter for data contact and primer
+GOT2_f <- GOT2 %>%
+  filter(
+    ownerContact == "anais.lacoursiere@dfo-mpo.gc.ca",
+    materialSampleID >= 43460,
+    materialSampleID <= 43630
+  )
+
+GOT2_metabar_f <- GOT2_metabar %>%
+  filter(
+    target_gene == "COI",
+    organismQuantity > 0,
+    materialSampleID >= 43460,
+    materialSampleID <= 43630
+  )
+
+#Combine files
+GOT2_joined <- GOT2_f %>%
+  left_join(
+    GOT2_metabar_f,
+    by = "materialSampleID",
+    relationship = "many-to-many"
+  )
+
+#Fix the values in eventDate
+
+GOT2_joined <- GOT2_joined %>%
   mutate(
     # Always work from a character version
     eventDate_chr = as.character(eventDate),
@@ -46,28 +82,29 @@ GOT2 <- GOT2 %>%
   ) %>%
   select(-eventDate_chr, -eventDate_num, -eventDate_chr_2y)
 
-#Filter for data contact
-
-GOT2_filtered <- GOT2 %>%
-  filter(
-    ownerContact == "anais.lacoursiere@dfo-mpo.gc.ca",
-    materialSampleID >= 43460,
-    materialSampleID <= 43630
-  )
-
-GOT2_metabar_filtered <- GOT2_metabar %>%
-  filter(
-    target_gene == "COI",
-    organismQuantity >= 0,
-    materialSampleID >= 43460,
-    materialSampleID <= 43630
-  )
+#Create unique event and occurrence IDs
+GOT2_joined <- GOT2_joined %>%
+  # Add unique suffix per eventID
+  group_by(eventID.x) %>%
+  mutate(
+    row_suffix = row_number(),
+    # make eventID unique
+    eventID = paste0(eventID.x, "-", row_suffix),
+    # make occurrenceID unique too; if it's NA, build one from dataset + materialSampleID
+    occurrenceID = if_else(
+      is.na(occurrenceID),
+      paste0("DFO-GRDI-BoF:", materialSampleID, "-", row_suffix),
+      paste0(occurrenceID, "-", row_suffix)
+    )
+  ) %>%
+  ungroup() %>%
+  select(-row_suffix)
 
 #Set up occurrence dataframe
-occurrence <- GOT2_filtered %>%
+occurrence <- GOT2_joined %>%
   mutate(
     associatedSequences = NA_character_, #Look to see if there are NCBI sequence links
-      basisOfRecord = basisOfRecord,
+      basisOfRecord = basisOfRecord.x,
       nameAccordingTo = "WoRMS",
       brackish = NA_character_,
       class = NA_character_, #Link to WoRMS
@@ -79,6 +116,7 @@ occurrence <- GOT2_filtered %>%
       depth = sampleDepth,
       eventDate = eventDate,
       eventID = eventID,
+      occurrenceID = occurrenceID,
       family = NA_character_, #Link to WoRMS
       familyid = NA_character_, #Link to WoRMS
       geodeticDatum = NA_character_,
@@ -160,34 +198,7 @@ occurrence <- GOT2_filtered %>%
       subclassid = NA_character_,
       superfamily = NA_character_,
       superfamilyid = NA_character_,
-  ) %>%
-  left_join(
-    GOT2_metabar_filtered %>%
-      select(materialSampleID,
-             scientificName = scientificName,
-             organismQuantity = organismQuantity,
-             organismQuantityType = organismQuantityType,
-             sampleSizeValue = sampleSizeValue,
-             sampleSizeUnit = sampleSizeUnit,
-             occurrenceID = occurrenceID
-      ),
-    by = "materialSampleID"
-    ) %>%
-      # Add unique suffix per eventID
-      group_by(eventID) %>%
-      mutate(
-        row_suffix = row_number(),
-        # make eventID unique
-        eventID = paste0(eventID, "-", row_suffix),
-        # make occurrenceID unique too; if it's NA, build one from dataset + materialSampleID
-        occurrenceID = if_else(
-          is.na(occurrenceID),
-          paste0("DFO-GRDI-BoF:", materialSampleID, "-", row_suffix),
-          paste0(occurrenceID, "-", row_suffix)
-        )
-      ) %>%
-  ungroup() %>%
-  select(-row_suffix)
+  )
 
 
 #Look up AphiaID (taxonID) from WoRMS by ScientificName
@@ -328,7 +339,7 @@ otu_df
 
 #DNA derived data extension
 
-dna_df <- GOT2_metabar_filtered %>%
+dna_df <- GOT2_joined %>%
   mutate(
     id = NA_character_,
     eventID = eventID,
@@ -428,8 +439,6 @@ dna_df <- GOT2_metabar_filtered %>%
     concentration = NA_character_,
     concentrationUnit = NA_character_,
     methodDeterminationConcentrationAndRatios = NA_character_,
-    ratioOfAbsorbance260_230 = NA_character_,
-    ratioOfAbsorbance260_280 = NA_character_,
     annealingTemp = NA_character_,
     annealingTempUnit = NA_character_,
     probeReporter = NA_character_,
@@ -479,10 +488,10 @@ dna_df <- dna_df %>%
          vir_ident_software,	pred_genome_type,	pred_genome_struc,	detec_type,	otu_class_appr,	otu_seq_comp_appr,	otu_db,	host_pred_appr,
          host_pred_est_acc,	url,	sop, pcr_primer_forward,	pcr_primer_reverse,	pcr_primer_name_forward,	pcr_primer_name_reverse,
          pcr_primer_reference, seq_id,	dna_sequence,	concentration,	concentrationUnit,	methodDeterminationConcentrationAndRatios,
-         ratioOfAbsorbance260_230,	ratioOfAbsorbance260_280,	annealingTemp,	annealingTempUnit,	probeReporter,	probeQuencher,	ampliconSize,
-         thresholdQuantificationCycle,	baselineValue,	quantificationCycle,	automaticThresholdQuantificationCycle,	automaticBaselineValue,
-         contaminationAssessment,	partitionVolume,	partitionVolumeUnit,	estimatedNumberOfCopies,	amplificationReactionVolume,
-         amplificationReactionVolumeUnit,	pcr_analysis_software,	experimentalVariance,	pcr_primer_lod,	pcr_primer_loq
+         annealingTemp,	annealingTempUnit,	probeReporter,	probeQuencher,	ampliconSize, thresholdQuantificationCycle,	baselineValue,
+         quantificationCycle,	automaticThresholdQuantificationCycle,	automaticBaselineValue, contaminationAssessment,	partitionVolume,
+         partitionVolumeUnit,	estimatedNumberOfCopies,	amplificationReactionVolume, amplificationReactionVolumeUnit,	pcr_analysis_software,
+         experimentalVariance,	pcr_primer_lod,	pcr_primer_loq
   )
 
 
@@ -490,13 +499,14 @@ dna_df <- dna_df %>%
 View(cleaned_occ)
 View(event)
 View(dna_df)
+
 --
 setwd("C:/Users/HEADK/Desktop/OBIS_prep")
 
 #Write CSV files for input into OBIS
-write.csv(cleaned_occ, "GRDI_BoF_COI_occurrence_updated.csv")
-write.csv(dna_df, "GRDI_BoF_COI_dnaderiveddata_updated.csv")
-write.csv(event, "GRDI_BoF_event_updated.csv")
+write.csv(cleaned_occ, "GRDI_BoF_COI_occurrence_updated_occ.csv")
+write.csv(dna_df, "GRDI_BoF_COI_dnaderiveddata_updated_occ.csv")
+write.csv(event, "GRDI_BoF_event_updated_occ.csv")
 --
 #Run Quality Control checks
 
@@ -506,14 +516,14 @@ write.csv(event, "GRDI_BoF_event_updated.csv")
 library(obistools)
 library(Hmisc)
 
-occur <- read.csv("GRDI_BoF_COI_occurrence_updated.csv")
-dna <- read.csv("GRDI_BoF_COI_dnaderiveddata_updated.csv")
-event <- read.csv("GRDI_BoF_event_updated.csv")
+occur <- read.csv("GRDI_BoF_COI_occurrence_updated_occ.csv")
+dna <- read.csv("GRDI_BoF_COI_dnaderiveddata_updated_occ.csv")
+event <- read.csv("GRDI_BoF_event_updated_occ.csv")
 
 #Check that the taxa names match with WoRMS
 worms <- match_taxa(unique(occur$scientificName))
-occur <- merge(occur, worms, by="scientificName")
 
+occur <- merge(occur, worms, by="scientificName")
 colnames(occur)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
 
 #Check that all required fields are present in the occurrence table
@@ -536,14 +546,17 @@ View(ct)
 cev <- check_eventids(event)
 cee <- check_extension_eventids(event, occur)
 
+#Check the uniqueness of the occurrenceID field (Want to = TRUE)
+length(occur$occurrenceID) == length(unique(occur$occurrenceID))
+
 #Summary of data quality
 describe(event)
 
 ##Write updated + cleaned files; When confident in the data, write these files and put into OBIS
 #Write CSV files for input into OBIS
-write.csv(occur, "OBIS_GRDI_BoF_COI_occurrence_updated.csv")
-write.csv(dna, "OBIS_GRDI_BoF_COI_dnaderiveddata_updated.csv")
-write.csv(event, "OBIS_GRDI_BoF_event_updated.csv")
+write.csv(occur, "OBIS_GRDI_BoF_COI_occurrence_updated_occ.csv")
+write.csv(dna, "OBIS_GRDI_BoF_COI_dnaderiveddata_updated_occ.csv")
+write.csv(event, "OBIS_GRDI_BoF_event_updated_occ.csv")
 
 ---
 ###Additional checks if you would like
@@ -553,14 +566,3 @@ obistools::check_onland
 #Ensure depth ranges are valid
 obistools::check_depth
 
-#Check that the identifiers are present, unique, and appropriately correspond with each other
-obistools::check_eventids
-
-#You should also check the uniqueness of the occurrenceID field
-(e.g. using Hmisc::describe or simple code like length(occur$occurrenceID) == length(unique(occur$occurrenceID)))
-
-#Ensure all eventIDs in extensions have matching eventIDs in the core table
-obistools::check_extension_eventids
-
-#Check that eventDate is formatted properly
-obistools::check_eventdate
