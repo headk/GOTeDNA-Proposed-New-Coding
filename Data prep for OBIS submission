@@ -1,4 +1,4 @@
-### This code was used to publish version #1.1 of resource dfo_grdi_bof_coi-1 into OBIS
+#This code has been updated for data quality considerations (11/24/2025)
 
 #Can edit this file for each dataset to prepare for OBIS submission
 
@@ -29,20 +29,23 @@ GOT2_metabar <- GOT2_metabar %>%
          materialSampleID = sub("\\.0$", "", materialSampleID))
 
 #Filter for data contact and primer
+# Filter for data contact and sample IDs
 GOT2_f <- GOT2 %>%
   filter(
-    ownerContact == "anais.lacoursiere@dfo-mpo.gc.ca",
-    materialSampleID >= 43460,
-    materialSampleID <= 43630
+    ownerContact == "kimberly.howland@dfo-mpo.gc.ca",
+    materialSampleID %in% as.character(43592:43622),
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude)
   )
 
+# Filter the metabarcoding dataset
 GOT2_metabar_f <- GOT2_metabar %>%
   filter(
-    target_gene == "COI",
+    target_gene == "12S",
     organismQuantity > 0,
-    materialSampleID >= 43460,
-    materialSampleID <= 43630
+    materialSampleID %in% as.character(43592:43622),
   )
+
 
 #Combine files
 GOT2_joined <- GOT2_f %>%
@@ -93,7 +96,7 @@ GOT2_joined <- GOT2_joined %>%
     # make occurrenceID unique too; if it's NA, build one from dataset + materialSampleID
     occurrenceID = if_else(
       is.na(occurrenceID),
-      paste0("DFO-GRDI-BoF:", materialSampleID, "-", row_suffix),
+      paste0("DFO-GRDI-Iqa:", materialSampleID, "-", row_suffix),
       paste0(occurrenceID, "-", row_suffix)
     )
   ) %>%
@@ -103,101 +106,23 @@ GOT2_joined <- GOT2_joined %>%
 #Set up occurrence dataframe
 occurrence <- GOT2_joined %>%
   mutate(
-    associatedSequences = NA_character_, #Look to see if there are NCBI sequence links
-      basisOfRecord = basisOfRecord.x,
-      nameAccordingTo = "WoRMS",
-      brackish = NA_character_,
-      class = NA_character_, #Link to WoRMS
-      classid = NA_character_, #Link to WoRMS
-      country = "Canada",
-      datasetID = "DFO-GRDI-BoF",
-      decimalLatitude = decimalLatitude,
-      decimalLongitude = decimalLongitude,
-      depth = sampleDepth,
-      eventDate = eventDate,
-      eventID = eventID,
-      occurrenceID = occurrenceID,
-      family = NA_character_, #Link to WoRMS
-      familyid = NA_character_, #Link to WoRMS
-      geodeticDatum = NA_character_,
-      gigaclass = NA_character_, #Link to WoRMS
-      gigaclassid = NA_character_, #Link to WoRMS
-      identificationRemarks = NA_character_,
-      infraphylum = NA_character_, #Link to WoRMS
-      infraphylumid = NA_character_, #Link to WoRMS
-      institutionID = NA_character_,
-      kingdom = NA_character_, #Link to WoRMS
-      kingdomid = NA_character_, #Link to WoRMS
-      language = "en",
-      license = NA_character_,
-      locality = NA_character_,
-      marine = NA_character_,
-      materialSampleID = materialSampleID,
-      maximumDepthInMeters = NA_character_,
-      minimumDepthInMeters = NA_character_,
-      modified = NA_character_,
-      occurrenceStatus = NA_character_,
-      order = NA_character_, #Link to WoRMS
-      orderid = NA_character_, #Link to WoRMS
-      parentEventID = NA_character_,
-      parvphylum = NA_character_, #Link to WoRMS
-      parvphylumid = NA_character_, #Link to WoRMS
-      phylum = NA_character_, #Link to WoRMS
-      phylumid = NA_character_, #Link to WoRMS
-      recordedByID = NA_character_,
-      scientificNameID = NA_character_,
-      subphylum = NA_character_, #Link to WoRMS
-      subphylumid = NA_character_, #Link to WoRMS
-      superclass = NA_character_, #Link to WoRMS
-      superclassid = NA_character_, #Link to WoRMS
-      taxonRank = NA_character_,
-      verbatimIdentification = NA_character_,
-      verbatimTaxonRank = NA_character_,
-      waterBody = NA_character_,
-      wrims = NA_character_,
-      month = month(eventDate),
-      id = NA_character_,
-      dataset_id = NA_character_,
-      node_id = NA_character_,
-      dropped = NA_character_,
-      absence = NA_character_,
-      originalScientificName = NA_character_,
-      aphiaID = NA_character_,
-      flags = NA_character_,
-      bathymetry = NA_character_,
-      shoredistance = NA_character_,
-      sst = NA_character_,
-      sss = NA_character_,
-      mof = NA_character_,
-      dna = NA_character_,
-      genus = NA_character_,
-      genusid = NA_character_,
-      species = NA_character_,
-      speciesid = NA_character_,
-      subfamily = NA_character_,
-      subfamilyid = NA_character_,
-      suborder = NA_character_,
-      suborderid = NA_character_,
-      category = NA_character_,
-      bibliographicCitation = bibliographicCitation,
-      collectionCode = NA_character_,
-      coordinateUncertaintyInMeters = NA_character_,
-      date_end = NA_character_,
-      date_mid = NA_character_,
-      date_start = NA_character_,
-      year = year(eventDate),
-      fieldNumber = NA_character_,
-      footprintWKT = NA_character_,
-      institutionCode = NA_character_,
-      scientificNameAuthorship = ownerContact,
-      infraorder = NA_character_,
-      infraorderid = NA_character_,
-      megaclass = NA_character_,
-      megaclassid = NA_character_,
-      subclass = NA_character_,
-      subclassid = NA_character_,
-      superfamily = NA_character_,
-      superfamilyid = NA_character_,
+    basisOfRecord = basisOfRecord.x,
+    nameAccordingTo = "WoRMS",
+    country = "Canada",
+    datasetID = "DFO-GRDI-Iqaluit",
+    decimalLatitude = decimalLatitude,
+    decimalLongitude = decimalLongitude,
+    depth = sampleDepth,
+    eventDate = eventDate,
+    eventID = eventID,
+    occurrenceID = occurrenceID,
+    occurrenceStatus = "present",
+    language = "en",
+    materialSampleID = materialSampleID,
+    month = month(eventDate),
+    bibliographicCitation = bibliographicCitation,
+    year = year(eventDate),
+    scientificNameAuthorship = ownerContact
   )
 
 
@@ -288,15 +213,10 @@ occurrence <- occurrence %>%
 #insert select code to clean up columns
 cleaned_occ <- occurrence %>%
   select(
-  eventID, eventDate, year, month, country, decimalLatitude, decimalLongitude, occurrenceID, materialSampleID, scientificName, kingdom, phylum, class, order, family, genus,
-  scientificNameID, taxonID, nameAccordingTo, identificationRemarks, basisOfRecord, organismQuantity,
-  organismQuantityType, sampleSizeValue, sampleSizeUnit, associatedSequences
-)
-
-#Create event table
-event <- cleaned_occ %>%
-  select(
-    eventDate, eventID, decimalLatitude, decimalLongitude, year, month, country
+    eventDate, year, month, country, decimalLatitude, decimalLongitude, occurrenceID, occurrenceStatus,
+    materialSampleID, scientificName, kingdom, phylum, class, order, family, genus, scientificNameID,
+    taxonID, nameAccordingTo, basisOfRecord, organismQuantity, organismQuantityType,
+    sampleSizeValue, sampleSizeUnit
   )
 
 #This code is used to extract information from otus.database.fasta.gz files (barque) to obtain the OTUids and sequences for input into the DNA-derived data extension for GBIF/OBIS
@@ -309,10 +229,10 @@ library(stringr)
 library(dplyr)
 library(tidyr)
 
-setwd("R:/Science/CESD/ABL_public/eDNA Results/APC0222/COI-1_BoF_Run02_20-Sep-22/13_otu_database")
+setwd("R:/Science/CESD/ABL_public/eDNA Results/APC0222/APC0222_12S_BoF_Run05_06-Feb-25/13_otu_database")
 
 # 1. Read the OTU database FASTA
-fa <- readDNAStringSet("COI1_mlCOIintF_jgHCO2198.otus.database.fasta.gz")
+fa <- readDNAStringSet("12S_248RADSFOR_MifishURMiya.otus.database.fasta.gz")
 
 # 2. Extract headers and sequences
 otu_df <- tibble(
@@ -341,124 +261,27 @@ otu_df
 
 dna_df <- GOT2_joined %>%
   mutate(
-    id = NA_character_,
-    eventID = eventID,
     occurrenceID = occurrenceID,
     samp_name = materialSampleID,
     project_name = "Monthly GRDI survey",
     scientificName = scientificName,
-    experimental_factor = NA_character_,
     env_broad_scale = "marine biome (ENVO:00000447)",
     env_local_scale = "water surface (ENVO:01001191)",
     env_medium = "sea water (ENVO:00002149)",
-    subspecf_gen_lin = NA_character_,
-    ploidy = NA_character_,
-    num_replicons = NA_character_,
-    extrachrom_elements = NA_character_,
-    estimated_size = NA_character_,
-    ref_biomaterial = NA_character_,
-    source_mat_id = NA_character_,
-    pathogenicity = NA_character_,
-    biotic_relationship = NA_character_,
-    specific_host = NA_character_,
-    host_spec_range = NA_character_,
-    host_disease_stat = NA_character_,
-    trophic_level = NA_character_,
-    propagation = NA_character_,
-    encoded_traits = NA_character_,
-    rel_to_oxygen = NA_character_,
-    isol_growth_condt = NA_character_,
-    samp_collec_device = NA_character_,
-    samp_collec_method = NA_character_,
     samp_mat_process = "sterivex filters",
     size_frac = "0.22 micrometer",
     samp_size = "1 L",
-    samp_vol_we_dna_ext = NA_character_,
-    source_uvig = NA_character_,
-    virus_enrich_appr = NA_character_,
-    nucl_acid_ext = NA_character_,
-    nucl_acid_amp = NA_character_,
-    lib_size = NA_character_,
-    lib_reads_seqd = NA_character_,
-    lib_layout = NA_character_,
-    lib_vector = NA_character_,
-    lib_screen = NA_character_,
     target_gene = target_gene,
     target_subfragment = target_subfragment,
-    pcr_primers = NA_character_,
-    mid = NA_character_,
-    adapters = NA_character_,
-    pcr_cond = NA_character_,
     seq_meth = "Illumina MiSeq [OBI_0002003]",
-    seq_quality_check = NA_character_,
-    chimera_check = NA_character_,
-    tax_ident = NA_character_,
-    assembly_qual = NA_character_,
-    assembly_name = NA_character_,
-    assembly_software = NA_character_,
-    annot = NA_character_,
-    number_contig = NA_character_,
-    feat_pred = NA_character_,
-    ref_db = "BOLD database that came with the barque download",
-    sim_search_meth = NA_character_,
-    tax_class = NA_character_,
-    trnas = NA_character_,
-    trna_ext_software = NA_character_,
-    compl_score = NA_character_,
-    compl_software = NA_character_,
-    compl_appr = NA_character_,
-    contam_score = NA_character_,
-    contam_screen_input = NA_character_,
-    contam_screen_param = NA_character_,
-    decontam_software = NA_character_,
-    sort_tech = NA_character_,
-    single_cell_lysis_appr = NA_character_,
-    single_cell_lysis_prot = NA_character_,
-    wga_amp_appr = NA_character_,
-    wga_amp_kit = NA_character_,
-    bin_param = NA_character_,
-    bin_software = NA_character_,
-    reassembly_bin = NA_character_,
-    mag_cov_software = NA_character_,
-    vir_ident_software = NA_character_,
-    pred_genome_type = NA_character_,
-    pred_genome_struc = NA_character_,
-    detec_type = NA_character_,
-    otu_class_appr = NA_character_,
+    ref_db = "MitoFish [Iwasaki et al., 2013; Sato et al., 2018; Zhu et al., 2023]",
     otu_seq_comp_appr = "[vsearch](https://github.com/torognes/vsearch/releases) v2.14.2+",
     otu_db = "barque v1.7.2 (Mathon et al. (2021))",
-    host_pred_appr = NA_character_,
-    host_pred_est_acc = NA_character_,
-    url = NA_character_,
-    sop = NA_character_,
-    pcr_primer_forward = "GGWACWGGWTGAACWGTWTAYCCYCC",
-    pcr_primer_reverse = "ACTTTCGTTCTTGATYRA",
-    pcr_primer_name_forward = "mlCOIlintF",
-    pcr_primer_name_reverse = "jgHCO2198",
-    pcr_primer_reference = "https://doi.org/10.1002/ece3.4213 | https://doi.org/10.1186/1742-9994-10-34 | https://doi.org/10.1111/1755-0998.12138",
-    concentration = NA_character_,
-    concentrationUnit = NA_character_,
-    methodDeterminationConcentrationAndRatios = NA_character_,
-    annealingTemp = NA_character_,
-    annealingTempUnit = NA_character_,
-    probeReporter = NA_character_,
-    probeQuencher = NA_character_,
-    ampliconSize = NA_character_,
-    thresholdQuantificationCycle = NA_character_,
-    baselineValue = NA_character_,
-    quantificationCycle = NA_character_,
-    automaticThresholdQuantificationCycle = NA_character_,
-    automaticBaselineValue = NA_character_,
-    contaminationAssessment = NA_character_,
-    partitionVolume = NA_character_,
-    partitionVolumeUnit = NA_character_,
-    estimatedNumberOfCopies = NA_character_,
-    amplificationReactionVolume = NA_character_,
-    amplificationReactionVolumeUnit = NA_character_,
-    pcr_analysis_software = NA_character_,
-    experimentalVariance = NA_character_,
-    pcr_primer_lod = NA_character_,
-    pcr_primer_loq = NA_character_,
+    pcr_primer_forward = "CGTGCCAGCCACCGCGGTT",
+    pcr_primer_reverse = "CATAGTGGGGTATCTAATCCCAGTTTG",
+    pcr_primer_name_forward = "12S_248F_RADS_For",
+    pcr_primer_name_reverse = "Mifish_UR_Miya",
+    pcr_primer_reference = "doi.org/10.1139/cjfas-2021-0215 | doi.org/10.1098/RSOS.150088",
     extension = "DNADerivedData"
   )
 
@@ -476,49 +299,36 @@ dna_df <- dna_df %>%
   )
 
 dna_df <- dna_df %>%
-  select(eventID, occurrenceID, samp_name,	project_name,	experimental_factor,	env_broad_scale, env_local_scale,	env_medium,	subspecf_gen_lin,	ploidy,
-         num_replicons,	extrachrom_elements,	estimated_size,	ref_biomaterial,	source_mat_id,	pathogenicity,	biotic_relationship,
-         specific_host,	host_spec_range,	host_disease_stat,	trophic_level,	propagation,	encoded_traits,	rel_to_oxygen,	isol_growth_condt,
-         samp_collec_device,	samp_collec_method,	samp_mat_process,	size_frac,	samp_size,	samp_vol_we_dna_ext,	source_uvig,	virus_enrich_appr,
-         nucl_acid_ext,	nucl_acid_amp,	lib_size,	lib_reads_seqd,	lib_layout,	lib_vector,	lib_screen,	target_gene,	target_subfragment,
-         pcr_primers,	mid,	adapters,	pcr_cond,	seq_meth,	seq_quality_check,	chimera_check,	tax_ident,	assembly_qual,	assembly_name,
-         assembly_software,	annot,	number_contig,	feat_pred,	ref_db,	sim_search_meth,	tax_class,	trnas,	trna_ext_software,
-         compl_score,	compl_software,	compl_appr,	contam_score,	contam_screen_input,	contam_screen_param, decontam_software,	sort_tech,
-         single_cell_lysis_appr,	single_cell_lysis_prot,	wga_amp_appr,	wga_amp_kit,	bin_param,	bin_software,	reassembly_bin,	mag_cov_software,
-         vir_ident_software,	pred_genome_type,	pred_genome_struc,	detec_type,	otu_class_appr,	otu_seq_comp_appr,	otu_db,	host_pred_appr,
-         host_pred_est_acc,	url,	sop, pcr_primer_forward,	pcr_primer_reverse,	pcr_primer_name_forward,	pcr_primer_name_reverse,
-         pcr_primer_reference, seq_id,	dna_sequence,	concentration,	concentrationUnit,	methodDeterminationConcentrationAndRatios,
-         annealingTemp,	annealingTempUnit,	probeReporter,	probeQuencher,	ampliconSize, thresholdQuantificationCycle,	baselineValue,
-         quantificationCycle,	automaticThresholdQuantificationCycle,	automaticBaselineValue, contaminationAssessment,	partitionVolume,
-         partitionVolumeUnit,	estimatedNumberOfCopies,	amplificationReactionVolume, amplificationReactionVolumeUnit,	pcr_analysis_software,
-         experimentalVariance,	pcr_primer_lod,	pcr_primer_loq
+  select(
+    occurrenceID, samp_name, project_name, scientificName, env_broad_scale, env_local_scale,
+    env_medium, samp_mat_process, size_frac, samp_size, target_gene, target_subfragment, seq_meth,
+    ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward,
+    pcr_primer_name_reverse, pcr_primer_reference, extension, seq_id, dna_sequence
   )
 
 
 #Review files
 View(cleaned_occ)
-View(event)
 View(dna_df)
 
 --
-setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+  setwd("C:/Users/HEADK/Desktop/OBIS_prep")
 
 #Write CSV files for input into OBIS
-write.csv(cleaned_occ, "GRDI_BoF_COI_occurrence_updated_occ.csv")
-write.csv(dna_df, "GRDI_BoF_COI_dnaderiveddata_updated_occ.csv")
-write.csv(event, "GRDI_BoF_event_updated_occ.csv")
+write.csv(cleaned_occ, "GRDI_Iqa_12S_occurrence.csv")
+write.csv(dna_df, "GRDI_Iqa_12S_dnaderiveddata.csv")
 --
-#Run Quality Control checks
+  #Run Quality Control checks
 
-#install.packages("devtools")
-#devtools::install_github("iobis/obistools")
+  #install.packages("devtools")
+  #devtools::install_github("iobis/obistools")
 
-library(obistools)
+  library(obistools)
 library(Hmisc)
 
-occur <- read.csv("GRDI_BoF_COI_occurrence_updated_occ.csv")
-dna <- read.csv("GRDI_BoF_COI_dnaderiveddata_updated_occ.csv")
-event <- read.csv("GRDI_BoF_event_updated_occ.csv")
+occur <- read.csv("GRDI_Iqa_12S_occurrence.csv")
+dna <- read.csv("GRDI_Iqa_12S_dnaderiveddata.csv")
+
 
 #Check that the taxa names match with WoRMS
 worms <- match_taxa(unique(occur$scientificName))
@@ -527,42 +337,14 @@ occur <- merge(occur, worms, by="scientificName")
 colnames(occur)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
 
 #Check that all required fields are present in the occurrence table
-
-cf <- check_fields(event)
-View(cf)
-
-
-##Check coordinates
-#plot on map to identify points that appear outside of scope of dataset
-plot_map(event)
-plot_map_leaflet(event) #allows you to select data point and identify which row in your data it corresponds to
-
-cd <- check_depth(event, report=T)
-View(cd)
-
-ct <- check_eventdate(event)
-View(ct)
-
-cev <- check_eventids(event)
-cee <- check_extension_eventids(event, occur)
-
 #Check the uniqueness of the occurrenceID field (Want to = TRUE)
 length(occur$occurrenceID) == length(unique(occur$occurrenceID))
 
-#Summary of data quality
-describe(event)
 
 ##Write updated + cleaned files; When confident in the data, write these files and put into OBIS
 #Write CSV files for input into OBIS
-write.csv(occur, "OBIS_GRDI_BoF_COI_occurrence_updated_occ.csv")
-write.csv(dna, "OBIS_GRDI_BoF_COI_dnaderiveddata_updated_occ.csv")
-write.csv(event, "OBIS_GRDI_BoF_event_updated_occ.csv")
+write.csv(occur, "OBIS_GRDI_Iqa_12S_occurrence.csv")
+write.csv(dna, "OBIS_GRDI_Iqa_12S_dnaderiveddata.csv")
 
----
-###Additional checks if you would like
-#Check points are not on land
-obistools::check_onland
 
-#Ensure depth ranges are valid
-obistools::check_depth
 
