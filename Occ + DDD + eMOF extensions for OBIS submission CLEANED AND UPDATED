@@ -1,4 +1,4 @@
-#EXAMPLE - Cleaned occurrence, dna derived data, and emof extensions for OBIS submission - Halifax COI example 
+#Can edit this file for each dataset to prepare for OBIS submission
 
 #Install packages and Load libraries
 library(dplyr)
@@ -191,10 +191,10 @@ occurrence <- GOT8_joined %>%
     filter_passive_active_0_1 = "1",
     associatedSequences = "https://www.ncbi.nlm.nih.gov/bioproject/1370813",
     samp_category = "sample",
-    samp_collec_device = samp_collect_device
+    samp_collec_device = samp_collect_device,
+    lib_id = materialSampleID,
+    seq_run_id = "run_URI_EG1-296"
     )
-
-
 
 #Look up AphiaID (taxonID) from WoRMS by ScientificName
 
@@ -352,16 +352,13 @@ worms <- match_taxa(unique(occur$scientificName))
 occur <- merge(occur, worms, by="scientificName")
 colnames(occur)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
 
-#Check that all required fields are present in the occurrence table
-#Check the uniqueness of the occurrenceID field (Want to = TRUE)
-length(occur$occurrenceID) == length(unique(occur$occurrenceID))
-
+#clean files
 cleaned_occ <- occur %>%
   select(
-    bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName, 
-    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,  eventID, 
+    bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,  eventID,
     basisOfRecord, locationID,  recordedBy, country, datasetID, occurrenceStatus, minimumDepthInMeters, maximumDepthInMeters,
-    language,  month, year, scientificNameAuthorship, taxonID, scientificNameID, kingdom, phylum, class, order, family, genus 
+    language,  month, year, scientificNameAuthorship, taxonID, scientificNameID, kingdom, phylum, class, order, family, genus
   )
 
 cleaned_dna <- dna %>%
@@ -373,8 +370,8 @@ cleaned_dna <- dna %>%
 
 ##Write updated + cleaned files; When confident in the data, write these files and put into OBIS
 #Write CSV files for input into OBIS
-write.csv(cleaned_occ, "OBIS_GRDI_Hal_COI_occurrence_cleaned.csv")
-write.csv(cleaned_dna, "OBIS_GRDI_Hal_COI_dnaderiveddata_cleaned.csv")
+write.csv(cleaned_occ, "OBIS_GRDI_Hal_COI_occurrence_cleaned_updated.csv")
+write.csv(cleaned_dna, "OBIS_GRDI_Hal_COI_dnaderiveddata_cleaned_updated.csv")
 
 
 #Create eMOF df
@@ -421,7 +418,7 @@ emof <- dna_df %>%
     assay_name, assay_type, targetTaxonomicAssay, samp_collect_device, samp_size_unit, filtrationType, filter_material,
     filter_name, samp_store_sol, samp_store_temp, nucl_acid_ext_kit, nucl_acid_ext_modify, geo_loc_name, technical_rep_id,
     project_contact, protocol_ID, protocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
-    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID 
+    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, seq_run_id, lib_id
     ) %>%
   distinct() %>%
   mutate(across(-occurrenceID, as.character)) %>%
@@ -443,4 +440,4 @@ emof <- dna_df %>%
   )
 
 #write csv file and put into OBIS
-write.csv(emof, "OBIS_GRDI_Hal_COI_emof.csv")
+write.csv(emof, "OBIS_GRDI_Hal_COI_emof_updated.csv")
