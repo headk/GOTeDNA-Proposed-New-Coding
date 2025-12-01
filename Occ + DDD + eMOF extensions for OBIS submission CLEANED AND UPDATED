@@ -1,4 +1,4 @@
-#Can edit this file for each dataset to prepare for OBIS submission
+#Can edit this file for each dataset to prepare for OBIS submission - this example is for Halifax COI 2021-2022 data w/ all extensions
 
 #Install packages and Load libraries
 library(dplyr)
@@ -84,34 +84,30 @@ GOT8_joined <- GOT8_joined %>%
   # 1) Remove any rows that are controls (controlType not NA/empty)
   filter(is.na(controlType) | controlType == "") %>%
 
-  # 2) Work within each original eventID.x
+  # 2) Drop any rows missing coordinates
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude)
+  ) %>%
+
+  # 3) Work within each original eventID.x
   group_by(eventID.x) %>%
   mutate(
     row_suffix = row_number(),
 
-    # TRUE if coordinates exist
-    has_coords = !is.na(decimalLatitude) & !is.na(decimalLongitude),
+    # eventID for every remaining row (all have coords now)
+    eventID = paste0(eventID.x, "-", row_suffix),
 
-    # 3) Assign eventID only when there are coordinates
-    eventID = if_else(
-      has_coords,
-      paste0(eventID.x, "-", row_suffix),
-      NA_character_
-    ),
-
-    # 4) Assign occurrenceID only when there are coordinates
+    # occurrenceID for every remaining row (present + absent)
     occurrenceID = if_else(
-      has_coords,
-      if_else(
-        is.na(occurrenceID),
-        paste0("DFO-GRDI-Iqa:", materialSampleID, "-", row_suffix),
-        paste0(occurrenceID, "-", row_suffix)
-      ),
-      NA_character_
+      is.na(occurrenceID),
+      # You might want "Hal" here instead of "Iqa" for Halifax:
+      paste0("DFO-GRDI-Hal:", materialSampleID, "-", row_suffix),
+      paste0(occurrenceID, "-", row_suffix)
     )
   ) %>%
   ungroup() %>%
-  select(-row_suffix, -has_coords)
+  select(-row_suffix)
 
 
 #Set up occurrence dataframe
@@ -347,15 +343,19 @@ occur <- occurrence
 dna <- dna_df
 
 #Check that the taxa names match with WoRMS
-worms <- match_taxa(unique(occur$scientificName))
+worms <- match_taxa(unique(occur$scientificName)) #choose option 1 each time
 
 occur <- merge(occur, worms, by="scientificName")
 colnames(occur)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
 
+#Check that all required fields are present in the occurrence table
+#Check the uniqueness of the occurrenceID field (Want to = TRUE)
+length(occur$occurrenceID) == length(unique(occur$occurrenceID))
+
 #clean files
 cleaned_occ <- occur %>%
   select(
-    bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
+    occurrenceID, bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
     organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,  eventID,
     basisOfRecord, locationID,  recordedBy, country, datasetID, occurrenceStatus, minimumDepthInMeters, maximumDepthInMeters,
     language,  month, year, scientificNameAuthorship, taxonID, scientificNameID, kingdom, phylum, class, order, family, genus
@@ -364,13 +364,13 @@ cleaned_occ <- occur %>%
 cleaned_dna <- dna %>%
   select(
     target_gene, target_subfragment, samp_name, samp_mat_process, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
-    seq_meth, seq_kit, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
+    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
     pcr_primer_reference, dna_sequence, occurrenceID, nucl_acid_ext, samp_collec_device
   )
 
 ##Write updated + cleaned files; When confident in the data, write these files and put into OBIS
 #Write CSV files for input into OBIS
-write.csv(cleaned_occ, "OBIS_GRDI_Hal_COI_occurrence_cleaned_updated.csv")
+write.csv(cleaned_occ, "OBIS_GRDI_Hal_COI_occurrence_cleaned_updated2.csv")
 write.csv(cleaned_dna, "OBIS_GRDI_Hal_COI_dnaderiveddata_cleaned_updated.csv")
 
 
@@ -441,3 +441,4 @@ emof <- dna_df %>%
 
 #write csv file and put into OBIS
 write.csv(emof, "OBIS_GRDI_Hal_COI_emof_updated.csv")
+
