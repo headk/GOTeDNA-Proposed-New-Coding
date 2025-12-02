@@ -1,4 +1,4 @@
-#Can edit this file for each dataset to prepare for OBIS submission - this example is for Halifax COI 2021-2022 data w/ all extensions
+#Can edit this file for each dataset to prepare for OBIS submission
 
 #Install packages and Load libraries
 library(dplyr)
@@ -189,7 +189,9 @@ occurrence <- GOT8_joined %>%
     samp_category = "sample",
     samp_collec_device = samp_collect_device,
     lib_id = materialSampleID,
-    seq_run_id = "run_URI_EG1-296"
+    seq_run_id = "run_URI_EG1-296",
+    project_id = "DFO-GRDI-HAL-COI",
+    pcr_0_1 = "1"
     )
 
 #Look up AphiaID (taxonID) from WoRMS by ScientificName
@@ -274,7 +276,6 @@ occurrence <- occurrence %>%
                    "order", "family", "genus",
                    "scientificNameID"))) %>%
   left_join(taxonomy_lookup, by = "taxonID")
-
 
 
 #This code is used to extract information from otus.database.fasta.gz files (barque) to obtain the OTUids and sequences for input into the DNA-derived data extension for GBIF/OBIS
@@ -418,7 +419,7 @@ emof <- dna_df %>%
     assay_name, assay_type, targetTaxonomicAssay, samp_collect_device, samp_size_unit, filtrationType, filter_material,
     filter_name, samp_store_sol, samp_store_temp, nucl_acid_ext_kit, nucl_acid_ext_modify, geo_loc_name, technical_rep_id,
     project_contact, protocol_ID, protocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
-    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, seq_run_id, lib_id
+    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, seq_run_id, lib_id, project_id, pcr_0_1
     ) %>%
   distinct() %>%
   mutate(across(-occurrenceID, as.character)) %>%
@@ -440,5 +441,6 @@ emof <- dna_df %>%
   )
 
 #write csv file and put into OBIS
-write.csv(emof, "OBIS_GRDI_Hal_COI_emof_updated.csv")
+write.csv(emof, "OBIS_GRDI_Hal_COI_emof_updated1.csv")
 
+#Submit all three datafiles to OBIS
