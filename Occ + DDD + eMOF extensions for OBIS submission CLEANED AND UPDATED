@@ -10,6 +10,7 @@ library(tibble)
 library(worrms)
 library(openxlsx)
 library(lubridate)
+library(tidyr)
 
 ##Obtain filled GOTeDNA template and link data to OBIS specific column headers
 
@@ -459,6 +460,7 @@ library(tibble)
 library(worrms)
 library(openxlsx)
 library(lubridate)
+library(tidyr)
 
 ##Obtain filled GOTeDNA template and link data to OBIS specific column headers
 
