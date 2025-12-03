@@ -1,0 +1,598 @@
+#GOTeDNA-2 - from GOTeDNA-2_Rawdata_organization_for_googledrivefile.R
+
+#Open packages and load libraries
+#install.packages("openxlsx")
+#install.packages("dplyr")
+#install.packages("tidyr")
+#install.packages("worrms")
+
+library(readxl)
+library(openxlsx)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(worrms)
+library(stringr)
+library(purrr)
+
+
+setwd("R:/Science/CESD/ABL_public/eDNA Results/APC0222/APC0222_18S-2_Iqaluit_Run02_10-Feb-25/Iqaluit 18S-2 results")
+
+# 1. Read the species table
+sp <- read.csv("18s2_TAReuk454FWD1_TAReukREV3_species_table.csv")
+
+#remove the x infront of the sample names
+names(sp) <- sub("^X", "", names(sp))   # if they are already "X43460"
+names(sp) <- sub("^x", "", names(sp))
+
+#Now organize the sample_metabarcoding data for GOTeDNA-2
+#Create df with GOTeDNA columns and add rows for species names from bioinformatic output file (xlsx/csv)
+
+Iqa_18S <- data.frame(
+  GOTeDNA_ID = NA_character_,
+  GOTeDNA_version = NA_character_,
+  basisOfRecord = NA_character_,
+  materialSampleID = NA_character_,
+  eventID = NA_character_,
+  recordedBy = NA_character_,
+  target_gene = NA_character_,
+  target_subfragment = NA_character_,
+  scientificName = NA_character_,
+  taxonID = NA_character_,
+  domain = NA_character_,
+  kingdom = NA_character_,
+  phylum = NA_character_,
+  class = NA_character_,
+  order = NA_character_,
+  family = NA_character_,
+  genus = NA_character_,
+  occurrenceID = NA_character_,
+  organismQuantity = NA_character_,
+  organismQuantityType = NA_character_,
+  sampleSizeValue = NA_character_,
+  samplingSizeUnit = NA_character_,
+  samplingProtocol = NA_character_,
+  associatedSequences = NA_character_,
+  identificationRemarks = NA_character_,
+  stringsAsFactors = FALSE
+)
+
+# Pivot from wide (samples as columns) to long (sample, value)
+# Linking bioinformatic output to GOTeDNA file format
+sp_adjusted <- sp %>%
+  # drop metadata columns that shouldn't be pivoted
+  select(-Group, -Genus, -Species) %>%      # add any other non-sample cols here if needed
+  pivot_longer(
+    cols = -c(TaxonName, Total),             # now only sample columns are pivoted
+    names_to = "materialSampleID",
+    values_to = "organismQuantity"
+  ) %>%
+  mutate(
+    Project_ID           = NA_character_,
+    GOTeDNA_ID           = "2",
+    GOTeDNA_version      = "1",
+    basisOfRecord        = "MaterialSample",
+    eventID              = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    recordedBy           = "KJ Head",
+    target_gene          = "18S",
+    target_subfragment   = "Hadziavdic_18S",
+    scientificName       = TaxonName |>
+                            sub("^[^_]+_", "", x = _) |>   # remove first chunk like "Annelida_"
+                            gsub("_", " ", x = _),          # replace remaining "_" with " "
+    taxonID              = NA_character_,
+    domain               = NA_character_,
+    kingdom              = NA_character_,
+    phylum               = NA_character_,
+    class                = NA_character_,
+    order                = NA_character_,
+    family               = NA_character_,
+    genus                = NA_character_,
+    occurrenceID         = NA_character_,
+    organismQuantityType = "DNA sequence reads",
+    sampleSizeValue      = Total,
+    sampleSizeUnit       = "DNA sequence reads",
+    samplingProtocol     = NA_character_,
+    associatedSequences  = NA_character_,
+    identificationRemarks = NA_character_
+  ) %>%
+  select(
+    GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID,
+    eventID, recordedBy, target_gene, target_subfragment, scientificName,
+    taxonID, domain, kingdom, phylum, class, order, family, genus, occurrenceID,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,
+    samplingProtocol, associatedSequences, identificationRemarks
+  )
+
+
+# 1) Build a one-time lookup for unique species -> AphiaID (fast & robust)
+species_lookup <- tibble::tibble(scientificName = unique(sp_adjusted$scientificName)) %>%
+  mutate(
+    taxonID = sapply(scientificName, function(s) {
+      id <- tryCatch(wm_name2id(s, marine_only = FALSE), error = function(e) NA)
+      if (is.null(id) || length(id) == 0) NA_integer_ else as.integer(id[1])
+    })
+  )
+
+# 2) Join the AphiaIDs into your df
+sp_adjusted <- sp_adjusted %>%
+  select(-any_of("taxonID")) %>%        # drop old taxonID column if present
+  left_join(species_lookup, by = "scientificName") %>%
+  filter(!is.na(taxonID))               # 3) remove rows with no AphiaID match
+
+# Optional: see how many were dropped
+dropped <- sum(is.na(species_lookup$taxonID))
+message(sprintf("Dropped %d species with no AphiaID match.", dropped))
+
+
+# Pick one AphiaID you have and inSpeciesect what wm_classification returns
+one_id <- unique(sp_adjusted$taxonID)[1]
+wm_classification(one_id) %>% str()   # you'll see columns 'rank' and 'scientificname'
+
+
+# Safe extractor for a given rank using the 'scientificname' column
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank","scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  tibble(
+    taxonID = id,
+    kingdom = .rank_val(classif, "Kingdom"),
+    phylum  = .rank_val(classif, "Phylum"),
+    class   = .rank_val(classif, "Class"),
+    order   = .rank_val(classif, "Order"),
+    family  = .rank_val(classif, "Family"),
+    genus   = .rank_val(classif, "Genus")
+  )
+}
+
+# Build a lookup for the unique AphiaIDs present in df
+unique_ids <- unique(sp_adjusted$taxonID)
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+# (Optional) see how many came back totally empty
+# sum(rowSums(is.na(taxonomy_lookup[,c("kingdom","phylum","class","order","family","genus")])) == 6)
+
+# Join back to your df
+sp_adjusted <- sp_adjusted %>%
+  select(-any_of(c("kingdom","phylum","class","order","family","genus"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID")
+
+
+
+#Fill out and edit other data columns with project details
+sp_adjusted <- sp_adjusted %>%
+  mutate(
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    )
+  )
+
+#Order the columns to be in GOTeDNA Order
+sp_adjusted <- sp_adjusted %>%
+  select(
+    GOTeDNA_ID,              # Protocol ID
+    GOTeDNA_version,         # protocol version
+    basisOfRecord,           # basis of record
+    materialSampleID,        # material sample
+    eventID,                 # event ID
+    recordedBy,              # recorded by
+    target_gene,             # target gene
+    target_subfragment,      # target subfragment
+    scientificName,          # scientific name
+    taxonID,                 # taxon ID
+    domain,
+    kingdom,                 # kingdom
+    phylum,                  # phylum
+    class,                   # class
+    order,                   # order
+    family,                  # family
+    genus,                   # genus
+    occurrenceID,            # occurrence ID
+    organismQuantity,        # organism quantity
+    organismQuantityType,    # organism quantity type
+    sampleSizeValue,         # sample size value
+    sampleSizeUnit,          # sample size unit
+    samplingProtocol,        # sampling protocol
+    associatedSequences,     # associated sequences
+    identificationRemarks    # identification remarks
+  )
+
+GOT2_18s <- sp_adjusted
+
+#Same for 12s
+setwd("R:/Science/CESD/ABL_public/eDNA Results/APC0222/APC0222_12S_Iqaluit_Run02_10-Feb-25/Iqaluit 12S results")
+
+# 1. Read the species table
+sp <- read.csv("12S_248RADSFOR_MifishURMiya_species_table.csv")
+
+#remove the x infront of the sample names
+names(sp) <- sub("^X", "", names(sp))   # if they are already "X43460"
+names(sp) <- sub("^x", "", names(sp))
+
+#Now organize the sample_metabarcoding data for GOTeDNA-2
+#Create df with GOTeDNA columns and add rows for species names from bioinformatic output file (xlsx/csv)
+
+Iqa_12S <- data.frame(
+  GOTeDNA_ID = NA_character_,
+  GOTeDNA_version = NA_character_,
+  basisOfRecord = NA_character_,
+  materialSampleID = NA_character_,
+  eventID = NA_character_,
+  recordedBy = NA_character_,
+  target_gene = NA_character_,
+  target_subfragment = NA_character_,
+  scientificName = NA_character_,
+  taxonID = NA_character_,
+  domain = NA_character_,
+  kingdom = NA_character_,
+  phylum = NA_character_,
+  class = NA_character_,
+  order = NA_character_,
+  family = NA_character_,
+  genus = NA_character_,
+  occurrenceID = NA_character_,
+  organismQuantity = NA_character_,
+  organismQuantityType = NA_character_,
+  sampleSizeValue = NA_character_,
+  samplingSizeUnit = NA_character_,
+  samplingProtocol = NA_character_,
+  associatedSequences = NA_character_,
+  identificationRemarks = NA_character_,
+  stringsAsFactors = FALSE
+)
+
+# Pivot from wide (samples as columns) to long (sample, value)
+# Linking bioinformatic output to GOTeDNA file format
+sp_adjusted <- sp %>%
+  # drop metadata columns that shouldn't be pivoted
+  select(-Group, -Genus, -Species) %>%      # add any other non-sample cols here if needed
+  pivot_longer(
+    cols = -c(TaxonName, Total),             # now only sample columns are pivoted
+    names_to = "materialSampleID",
+    values_to = "organismQuantity"
+  ) %>%
+  mutate(
+    Project_ID           = NA_character_,
+    GOTeDNA_ID           = "2",
+    GOTeDNA_version      = "1",
+    basisOfRecord        = "MaterialSample",
+    eventID              = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    recordedBy           = "KJ Head",
+    target_gene          = "12S",
+    target_subfragment   = "MiFish_12S",
+    scientificName       = TaxonName |>
+      sub("^[^_]+_", "", x = _) |>   # remove first chunk like "Annelida_"
+      gsub("_", " ", x = _),          # replace remaining "_" with " "
+    taxonID              = NA_character_,
+    domain               = NA_character_,
+    kingdom              = NA_character_,
+    phylum               = NA_character_,
+    class                = NA_character_,
+    order                = NA_character_,
+    family               = NA_character_,
+    genus                = NA_character_,
+    occurrenceID         = NA_character_,
+    organismQuantityType = "DNA sequence reads",
+    sampleSizeValue      = Total,
+    sampleSizeUnit       = "DNA sequence reads",
+    samplingProtocol     = NA_character_,
+    associatedSequences  = NA_character_,
+    identificationRemarks = NA_character_
+  ) %>%
+  select(
+    GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID,
+    eventID, recordedBy, target_gene, target_subfragment, scientificName,
+    taxonID, domain, kingdom, phylum, class, order, family, genus, occurrenceID,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,
+    samplingProtocol, associatedSequences, identificationRemarks
+  )
+
+
+# 1) Build a one-time lookup for unique species -> AphiaID (fast & robust)
+species_lookup <- tibble::tibble(scientificName = unique(sp_adjusted$scientificName)) %>%
+  mutate(
+    taxonID = sapply(scientificName, function(s) {
+      id <- tryCatch(wm_name2id(s, marine_only = FALSE), error = function(e) NA)
+      if (is.null(id) || length(id) == 0) NA_integer_ else as.integer(id[1])
+    })
+  )
+
+# 2) Join the AphiaIDs into your df
+sp_adjusted <- sp_adjusted %>%
+  select(-any_of("taxonID")) %>%        # drop old taxonID column if present
+  left_join(species_lookup, by = "scientificName") %>%
+  filter(!is.na(taxonID))               # 3) remove rows with no AphiaID match
+
+# Optional: see how many were dropped
+dropped <- sum(is.na(species_lookup$taxonID))
+message(sprintf("Dropped %d species with no AphiaID match.", dropped))
+
+
+# Pick one AphiaID you have and inSpeciesect what wm_classification returns
+one_id <- unique(sp_adjusted$taxonID)[1]
+wm_classification(one_id) %>% str()   # you'll see columns 'rank' and 'scientificname'
+
+
+# Safe extractor for a given rank using the 'scientificname' column
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank","scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  tibble(
+    taxonID = id,
+    kingdom = .rank_val(classif, "Kingdom"),
+    phylum  = .rank_val(classif, "Phylum"),
+    class   = .rank_val(classif, "Class"),
+    order   = .rank_val(classif, "Order"),
+    family  = .rank_val(classif, "Family"),
+    genus   = .rank_val(classif, "Genus")
+  )
+}
+
+# Build a lookup for the unique AphiaIDs present in df
+unique_ids <- unique(sp_adjusted$taxonID)
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+# (Optional) see how many came back totally empty
+# sum(rowSums(is.na(taxonomy_lookup[,c("kingdom","phylum","class","order","family","genus")])) == 6)
+
+# Join back to your df
+sp_adjusted <- sp_adjusted %>%
+  select(-any_of(c("kingdom","phylum","class","order","family","genus"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID")
+
+
+
+#Fill out and edit other data columns with project details
+sp_adjusted <- sp_adjusted %>%
+  mutate(
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    )
+  )
+
+#Order the columns to be in GOTeDNA Order
+sp_adjusted <- sp_adjusted %>%
+  select(
+    GOTeDNA_ID,              # Protocol ID
+    GOTeDNA_version,         # protocol version
+    basisOfRecord,           # basis of record
+    materialSampleID,        # material sample
+    eventID,                 # event ID
+    recordedBy,              # recorded by
+    target_gene,             # target gene
+    target_subfragment,      # target subfragment
+    scientificName,          # scientific name
+    taxonID,                 # taxon ID
+    domain,
+    kingdom,                 # kingdom
+    phylum,                  # phylum
+    class,                   # class
+    order,                   # order
+    family,                  # family
+    genus,                   # genus
+    occurrenceID,            # occurrence ID
+    organismQuantity,        # organism quantity
+    organismQuantityType,    # organism quantity type
+    sampleSizeValue,         # sample size value
+    sampleSizeUnit,          # sample size unit
+    samplingProtocol,        # sampling protocol
+    associatedSequences,     # associated sequences
+    identificationRemarks    # identification remarks
+  )
+
+GOT2_12s <- sp_adjusted
+
+
+#Same for 16s
+setwd("R:/Science/CESD/ABL_public/eDNA Results/APC0222/APC0222_16S_Iqaluit_Run04_10-Feb-25/Iqaluit 16S results")
+
+# 1. Read the species table
+sp <- read.csv("16S-Fish_species_table.csv")
+
+#remove the x infront of the sample names
+names(sp) <- sub("^X", "", names(sp))   # if they are already "X43460"
+names(sp) <- sub("^x", "", names(sp))
+
+#Now organize the sample_metabarcoding data for GOTeDNA-2
+#Create df with GOTeDNA columns and add rows for species names from bioinformatic output file (xlsx/csv)
+
+Iqa_16S <- data.frame(
+  GOTeDNA_ID = NA_character_,
+  GOTeDNA_version = NA_character_,
+  basisOfRecord = NA_character_,
+  materialSampleID = NA_character_,
+  eventID = NA_character_,
+  recordedBy = NA_character_,
+  target_gene = NA_character_,
+  target_subfragment = NA_character_,
+  scientificName = NA_character_,
+  taxonID = NA_character_,
+  domain = NA_character_,
+  kingdom = NA_character_,
+  phylum = NA_character_,
+  class = NA_character_,
+  order = NA_character_,
+  family = NA_character_,
+  genus = NA_character_,
+  occurrenceID = NA_character_,
+  organismQuantity = NA_character_,
+  organismQuantityType = NA_character_,
+  sampleSizeValue = NA_character_,
+  samplingSizeUnit = NA_character_,
+  samplingProtocol = NA_character_,
+  associatedSequences = NA_character_,
+  identificationRemarks = NA_character_,
+  stringsAsFactors = FALSE
+)
+
+# Pivot from wide (samples as columns) to long (sample, value)
+# Linking bioinformatic output to GOTeDNA file format
+sp_adjusted <- sp %>%
+  # drop metadata columns that shouldn't be pivoted
+  select(-Group, -Genus, -Species) %>%      # add any other non-sample cols here if needed
+  pivot_longer(
+    cols = -c(TaxonName, Total),             # now only sample columns are pivoted
+    names_to = "materialSampleID",
+    values_to = "organismQuantity"
+  ) %>%
+  mutate(
+    Project_ID           = NA_character_,
+    GOTeDNA_ID           = "2",
+    GOTeDNA_version      = "1",
+    basisOfRecord        = "MaterialSample",
+    eventID              = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    recordedBy           = "KJ Head",
+    target_gene          = "16S",
+    target_subfragment   = "Fish_16S",
+    scientificName       = TaxonName |>
+      sub("^[^_]+_", "", x = _) |>   # remove first chunk like "Annelida_"
+      gsub("_", " ", x = _),          # replace remaining "_" with " "
+    taxonID              = NA_character_,
+    domain               = NA_character_,
+    kingdom              = NA_character_,
+    phylum               = NA_character_,
+    class                = NA_character_,
+    order                = NA_character_,
+    family               = NA_character_,
+    genus                = NA_character_,
+    occurrenceID         = NA_character_,
+    organismQuantityType = "DNA sequence reads",
+    sampleSizeValue      = Total,
+    sampleSizeUnit       = "DNA sequence reads",
+    samplingProtocol     = NA_character_,
+    associatedSequences  = NA_character_,
+    identificationRemarks = NA_character_
+  ) %>%
+  select(
+    GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID,
+    eventID, recordedBy, target_gene, target_subfragment, scientificName,
+    taxonID, domain, kingdom, phylum, class, order, family, genus, occurrenceID,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,
+    samplingProtocol, associatedSequences, identificationRemarks
+  )
+
+
+# 1) Build a one-time lookup for unique species -> AphiaID (fast & robust)
+species_lookup <- tibble::tibble(scientificName = unique(sp_adjusted$scientificName)) %>%
+  mutate(
+    taxonID = sapply(scientificName, function(s) {
+      id <- tryCatch(wm_name2id(s, marine_only = FALSE), error = function(e) NA)
+      if (is.null(id) || length(id) == 0) NA_integer_ else as.integer(id[1])
+    })
+  )
+
+# 2) Join the AphiaIDs into your df
+sp_adjusted <- sp_adjusted %>%
+  select(-any_of("taxonID")) %>%        # drop old taxonID column if present
+  left_join(species_lookup, by = "scientificName") %>%
+  filter(!is.na(taxonID))               # 3) remove rows with no AphiaID match
+
+# Optional: see how many were dropped
+dropped <- sum(is.na(species_lookup$taxonID))
+message(sprintf("Dropped %d species with no AphiaID match.", dropped))
+
+
+# Pick one AphiaID you have and inSpeciesect what wm_classification returns
+one_id <- unique(sp_adjusted$taxonID)[1]
+wm_classification(one_id) %>% str()   # you'll see columns 'rank' and 'scientificname'
+
+
+# Safe extractor for a given rank using the 'scientificname' column
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank","scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  tibble(
+    taxonID = id,
+    kingdom = .rank_val(classif, "Kingdom"),
+    phylum  = .rank_val(classif, "Phylum"),
+    class   = .rank_val(classif, "Class"),
+    order   = .rank_val(classif, "Order"),
+    family  = .rank_val(classif, "Family"),
+    genus   = .rank_val(classif, "Genus")
+  )
+}
+
+# Build a lookup for the unique AphiaIDs present in df
+unique_ids <- unique(sp_adjusted$taxonID)
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+# (Optional) see how many came back totally empty
+# sum(rowSums(is.na(taxonomy_lookup[,c("kingdom","phylum","class","order","family","genus")])) == 6)
+
+# Join back to your df
+sp_adjusted <- sp_adjusted %>%
+  select(-any_of(c("kingdom","phylum","class","order","family","genus"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID")
+
+
+
+#Fill out and edit other data columns with project details
+sp_adjusted <- sp_adjusted %>%
+  mutate(
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    )
+  )
+
+#Order the columns to be in GOTeDNA Order
+sp_adjusted <- sp_adjusted %>%
+  select(
+    GOTeDNA_ID,              # Protocol ID
+    GOTeDNA_version,         # protocol version
+    basisOfRecord,           # basis of record
+    materialSampleID,        # material sample
+    eventID,                 # event ID
+    recordedBy,              # recorded by
+    target_gene,             # target gene
+    target_subfragment,      # target subfragment
+    scientificName,          # scientific name
+    taxonID,                 # taxon ID
+    domain,
+    kingdom,                 # kingdom
+    phylum,                  # phylum
+    class,                   # class
+    order,                   # order
+    family,                  # family
+    genus,                   # genus
+    occurrenceID,            # occurrence ID
+    organismQuantity,        # organism quantity
+    organismQuantityType,    # organism quantity type
+    sampleSizeValue,         # sample size value
+    sampleSizeUnit,          # sample size unit
+    samplingProtocol,        # sampling protocol
+    associatedSequences,     # associated sequences
+    identificationRemarks    # identification remarks
+  )
+
+GOT2_16s <- sp_adjusted
+
+
+GOT2_all <- bind_rows(GOT2_12s, GOT2_16s, GOT2_18s)
+
+
+#Write excel file and input into GOTeDNA-2
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+write.csv(GOT2_all, "GOTeDNA-2_16S18S12SIqaluit_data_UPDATED.csv")
+
+
+
