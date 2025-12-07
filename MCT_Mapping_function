@@ -1,0 +1,135 @@
+#load libraries
+library(sf)
+library(dplyr)
+library(leaflet)
+
+#Load the Canadian MPA Network Shapefiles and planning regions extracted from the Canadian Database of Protected and Conserved Areas
+gdb_path <- "C:/Users/HEADK/Desktop/ProtectedConservedArea_2024.gdb"
+
+#See what layers are inside the GDB
+st_layers(gdb_path)
+
+mpa_all <- st_read(gdb_path, layer = "ProtectedConservedArea_2024")
+
+names(mpa_all)
+
+# 1. Filter to marine biome
+mpa_marine <- mpa_all %>%
+  filter(BIOME == "M")
+
+mpa_marine_wgs <- st_transform(mpa_marine, 4326)
+
+#leaflet map of all the MCT polygons (not filtered to Maritimes)
+leaflet(mpa_marine_wgs) %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+  addPolygons(
+    weight = 1,
+    fillOpacity = 0.5,
+    popup = ~NAME_E    # English name of the area
+  )
+
+#Continue to filter
+
+# Filter to marine biome, ignore delisted
+mpa_marine <- mpa_all %>%
+  filter(
+    BIOME == "M",
+    is.na(DELISTYEAR)  # keep only active areas
+  )
+
+#Choose specific sites
+target_names <- c(
+  "St. Anns Bank Marine Protected Area",
+  "Gully Marine Protected Area",
+  "Musquash Estuary Marine Protected Area"
+)
+
+mpa_targets <- mpa_marine %>%
+  filter(NAME_E %in% target_names)
+
+mpa_targets_wgs84 <- st_transform(mpa_targets, 4326)
+
+leaflet(mpa_targets_wgs84) %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+  addPolygons(
+    weight      = 2,
+    fillOpacity = 0.5,
+    popup       = ~NAME_E
+  )
+
+
+#Obtain AOI mapping
+
+install.packages("arcgislayers")
+library(arcgislayers)
+library(dplyr)
+library(sf)
+
+aoi_url <- "https://egisp.dfo-mpo.gc.ca/arcgis/rest/services/open_data_donnees_ouvertes/oceans_act_areas_of_interest_sites_dinteret_de_la_loi_sur_les_oceans/MapServer/0"
+
+# connect & download AOI polygons
+aoi_layer  <- arc_open(aoi_url)
+aoi_polys  <- arc_select(aoi_layer)      # returns an 'arc_layer'
+aoi_sf     <- st_as_sf(aoi_polys)        # convert to sf
+
+# check name field:
+names(aoi_sf)
+sort(unique(aoi_sf$NAME_E))
+
+aoi_target_names <- c(
+  "Eastern Shore Islands Area of Interest",
+  "Fundian Channel-Browns Bank Area of Interest"
+)
+
+aoi_targets <- aoi_sf %>%
+  filter(NAME_E %in% aoi_target_names) %>%
+  mutate(status = "AOI")           # designation status
+
+
+# put them together
+all_sites <- bind_rows(
+  mpa_targets %>% st_make_valid(),   # just in case of topology issues
+  aoi_targets %>% st_make_valid()
+)
+
+
+mpa_targets_wgs <- st_transform(mpa_targets, 4326)  # MULTIPOLYGON
+aoi_targets_wgs <- st_transform(aoi_targets, 4326)  # POINT
+
+
+pal_status <- colorFactor(
+  palette = c("blue", "blue"),
+  domain  = c("MPA", "AOI")
+)
+
+leaflet() %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+
+  # MPAs: polygons
+  addPolygons(
+    data       = mpa_targets_wgs,
+    color      = pal_status("MPA"),
+    weight     = 2,
+    fillOpacity= 0.5,
+    popup      = ~paste0("<b>", NAME_E, "</b><br>Status: MPA")
+  ) %>%
+
+  # AOIs: points
+  addCircleMarkers(
+    data   = aoi_targets_wgs,
+    color  = pal_status("AOI"),
+    radius = 6,
+    fillOpacity = 0.9,
+    stroke = TRUE,
+    weight = 1,
+    popup  = ~paste0("<b>", NAME_E, "</b><br>Status: AOI")
+  )
+
+  # Legend %>%
+ # addLegend(
+ #   "bottomright",
+ #  pal    = pal_status,
+  #  values = c("MPA", "AOI"),
+  #  title  = "Designation status"
+#  )
+
