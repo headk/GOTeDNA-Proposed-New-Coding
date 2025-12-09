@@ -2,6 +2,7 @@
 library(sf)
 library(dplyr)
 library(leaflet)
+library(arcgislayers)
 
 #Load the Canadian MPA Network Shapefiles and planning regions extracted from the Canadian Database of Protected and Conserved Areas
 gdb_path <- "C:/Users/HEADK/Desktop/ProtectedConservedArea_2024.gdb"
@@ -59,11 +60,6 @@ leaflet(mpa_targets_wgs84) %>%
 
 
 #Obtain AOI mapping
-
-install.packages("arcgislayers")
-library(arcgislayers)
-library(dplyr)
-library(sf)
 
 aoi_url <- "https://egisp.dfo-mpo.gc.ca/arcgis/rest/services/open_data_donnees_ouvertes/oceans_act_areas_of_interest_sites_dinteret_de_la_loi_sur_les_oceans/MapServer/0"
 
