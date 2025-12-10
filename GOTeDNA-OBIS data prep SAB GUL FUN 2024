@@ -1,7 +1,5 @@
 #This document is in two parts, the first organizing 12S and COI data for the GOTeDNA templates, and the second part using those templates for OBIS 
-#NOTE: This code is missing the lib_id and seq_lib_id values mandatory for FAIRe standards. These are available from the ABL report, however, there were discrepencies
-with "." and "_" in the material sample names that were a pain. For MCT data much of it is from CEGA where we won't have those values anyways, so I decided to exclude
-from this code (those values are present in the GRDI datasets, however).
+#NOTE: This code is missing the lib_id and seq_lib_id values mandatory for FAIRe standards for COI ONLY - FIX TOMORROW FIRST THING
 
 #GOTeDNA-22 St Anns Bank 2024 - 12S, COI and metadata
 
@@ -663,24 +661,24 @@ GOT22_joined <- GOT22_joined %>%
   mutate(
     # Always work from a character version
     eventDate_chr = as.character(eventDate),
-
+    
     # Try to interpret as numeric (Excel serial)
     eventDate_num = suppressWarnings(as.numeric(eventDate_chr)),
-
+    
     # Fix 2-digit year dates like 21/8/19 -> 21/8/2019
     eventDate_chr_2y = if_else(
       str_detect(eventDate_chr, "^\\d{1,2}/\\d{1,2}/\\d{2}$"),
       sub("(\\d{1,2}/\\d{1,2}/)(\\d{2})$", "\\120\\2", eventDate_chr),
       NA_character_
     ),
-
+    
     eventDate = case_when(
       # 1) Excel numeric serials (42293 etc.)
       !is.na(eventDate_num) ~ as.Date(eventDate_num, origin = "1899-12-30"),
-
+      
       # 2) dd/mm/yy we just expanded to dd/mm/20yy
       !is.na(eventDate_chr_2y) ~ as.Date(eventDate_chr_2y, format = "%d/%m/%Y"),
-
+      
       # 3) Normal dd/mm/yyyy strings
       TRUE ~ as.Date(eventDate_chr, format = "%d/%m/%Y")
     )
@@ -692,21 +690,21 @@ GOT22_joined <- GOT22_joined %>%
 GOT22_joined <- GOT22_joined %>%
   # 1) Remove any rows that are controls (controlType not NA/empty)
   filter(is.na(controlType) | controlType == "") %>%
-
+  
   # 2) Drop any rows missing coordinates
   filter(
     !is.na(decimalLatitude),
     !is.na(decimalLongitude)
   ) %>%
-
+  
   # 3) Work within each original eventID.x
   group_by(eventID.x) %>%
   mutate(
     row_suffix = row_number(),
-
+    
     # eventID for every remaining row (all have coords now)
     eventID = paste0(eventID.x, "-", row_suffix),
-
+    
     # occurrenceID for every remaining row (present + absent)
     occurrenceID = if_else(
       is.na(occurrenceID),
@@ -719,6 +717,35 @@ GOT22_joined <- GOT22_joined %>%
 
 
 #Set up occurrence dataframe
+
+map_raw <- read.csv("OBIS_Perley_2024_12S.csv", stringsAsFactors = FALSE)
+
+map_long <- bind_rows(
+  map_raw %>%
+    select(Seq_Run_ID, lib_id = Lib_ID) %>%
+    mutate(lib_id = gsub("_", ".", lib_id)),
+  
+  map_raw %>%
+    select(Seq_Run_ID = Seq_Run_ID.1,
+           lib_id    = Lib_ID.1) %>%
+    mutate(lib_id = gsub("_", ".", lib_id))
+) %>%
+  filter(!is.na(lib_id) & lib_id != "")
+
+map_clean <- map_long %>%
+  filter(!str_detect(lib_id, "ENEG")) %>%
+  mutate(
+    # Extract SAB24.EDNA.014 from SAB24.EDNA.014.S1.MiSeq_250131
+    materialSampleID = str_extract(lib_id, "^[A-Za-z0-9]+\\.EDNA\\.\\d{3}")
+  ) %>%
+  distinct(materialSampleID, .keep_all = TRUE)
+
+map_clean <- map_clean %>%
+  # treat blanks as NA
+  mutate(Seq_Run_ID = na_if(Seq_Run_ID, "")) %>%
+  # fill seq_run_id down within the whole table
+  fill(Seq_Run_ID)
+
 occurrence <- GOT22_joined %>%
   mutate(
     protocol_ID = GOTeDNA_ID.x,
@@ -797,16 +824,18 @@ occurrence <- GOT22_joined %>%
     samp_collec_device = samp_collect_device,
     project_id = Project_ID,
     pcr_0_1 = "1",
- ) %>%
-
+  ) %>%
+  
   #filter(
-    #!is.na(minimumDepthInMeters),
-    #!is.na(maximumDepthInMeters),
-    #!is.na(target_gene),
-    #!is.na(scientificName)
+  #!is.na(minimumDepthInMeters),
+  #!is.na(maximumDepthInMeters),
+  #!is.na(target_gene),
+  #!is.na(scientificName)
   #) %>%
   left_join(map_clean, by = "materialSampleID"
-  )
+  ) %>%
+  mutate (seq_run_id = Seq_Run_ID)
+
 
 #Look up AphiaID (taxonID) from WoRMS by ScientificName
 
@@ -818,12 +847,12 @@ species_lookup <- occurrence %>%
       ~ {
         # Keep NAs as NAs
         if (is.na(.x) || .x == "") return(NA_integer_)
-
+        
         id <- tryCatch(
           wm_name2id(.x, marine_only = FALSE),
           error = function(e) NA
         )
-
+        
         if (is.null(id) || length(id) == 0 || is.na(id[1])) {
           NA_integer_
         } else {
@@ -862,7 +891,7 @@ occurrence <- occurrence %>%
 get_taxonomy_for_id <- function(id) {
   classif <- tryCatch(wm_classification(id), error = function(e) NULL)
   rec     <- tryCatch(wm_record(id),        error = function(e) NULL)
-
+  
   tibble(
     taxonID           = id,
     scientificNameID  = if (!is.null(rec) && "lsid" %in% names(rec))
@@ -1008,7 +1037,7 @@ emof <- dna_df %>%
     assay_name, assay_type, targetTaxonomicAssay, samp_collect_device, samp_size_unit, filtrationType, filter_material,
     filter_name, samp_store_sol, samp_store_temp, nucl_acid_ext_kit, nucl_acid_ext_modify, geo_loc_name, technical_rep_id,
     project_contact, protocol_ID, protocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
-    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1
+    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1, seq_run_id, lib_id
   ) %>%
   distinct() %>%
   mutate(across(-occurrenceID, as.character)) %>%
@@ -1473,5 +1502,3 @@ emof <- dna_df %>%
 
 #write csv file and put into OBIS
 write.csv(emof, "OBIS_MCT_SABGULFUN2024_COI_emof.csv")
-
-
