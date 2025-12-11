@@ -1,8 +1,13 @@
+#This code is by no means clean but it works and it provides many options for customizations/changes 
+
 #load libraries
 library(sf)
 library(dplyr)
 library(leaflet)
 library(arcgislayers)
+library(tidyr)
+library(ggplot2)
+library(scico)
 
 #Load the Canadian MPA Network Shapefiles and planning regions extracted from the Canadian Database of Protected and Conserved Areas
 gdb_path <- "C:/Users/HEADK/Desktop/ProtectedConservedArea_2024.gdb"
@@ -61,71 +66,1116 @@ leaflet(mpa_targets_wgs84) %>%
 
 #Obtain AOI mapping
 
-aoi_url <- "https://egisp.dfo-mpo.gc.ca/arcgis/rest/services/open_data_donnees_ouvertes/oceans_act_areas_of_interest_sites_dinteret_de_la_loi_sur_les_oceans/MapServer/0"
+# 1. Eastern Shore Islands network site polygon
+esi_poly <- st_read("C:/Users/HEADK/Desktop/Nicks Data/EasternShoreIslands_networksite.shp")
 
-# connect & download AOI polygons
-aoi_layer  <- arc_open(aoi_url)
-aoi_polys  <- arc_select(aoi_layer)      # returns an 'arc_layer'
-aoi_sf     <- st_as_sf(aoi_polys)        # convert to sf
+st_crs(esi_poly)    # just to check
 
-# check name field:
-names(aoi_sf)
-sort(unique(aoi_sf$NAME_E))
+# transform to WGS84 for leaflet
+esi_poly_wgs <- st_transform(esi_poly, 4326)
 
-aoi_target_names <- c(
-  "Eastern Shore Islands Area of Interest",
-  "Fundian Channel-Browns Bank Area of Interest"
+#Unzip and read the Fundian Channel-BrownsBank shapefile
+fcbb_poly <- st_read("C:/Users/HEADK/Desktop/Nicks Data/FCBB_Proposed_MPA_Boundary_zones.shp")
+
+st_crs(fcbb_poly)
+
+fcbb_poly_wgs <- st_transform(fcbb_poly, 4326)
+
+
+mpa_marine <- mpa_all %>%
+  filter(BIOME == "M", is.na(DELISTYEAR))
+
+mpa_target_names <- c(
+  "St. Anns Bank Marine Protected Area",
+  "Musquash Estuary Marine Protected Area",
+  "Gully Marine Protected Area"
 )
 
-aoi_targets <- aoi_sf %>%
-  filter(NAME_E %in% aoi_target_names) %>%
-  mutate(status = "AOI")           # designation status
+mpa_targets <- mpa_marine %>%
+  filter(NAME_E %in% mpa_target_names)
+
+mpa_targets_wgs <- st_transform(mpa_targets, 4326)
+
+#######################################################################
+#library(wesanderson) - This is the map that we are going off of for the species richness plots
+
+#wes_pal <- wes_palette("Zissou1", n = 5, type = "continuous")
+#wes_pal
+
+#Try manually choosing colours
+mpa_col  <- "blue"
+esi_col  <- "blue" #wes_pal[4]
+fcbb_col <- "blue" #wes_pal[5]
 
 
-# put them together
-all_sites <- bind_rows(
-  mpa_targets %>% st_make_valid(),   # just in case of topology issues
-  aoi_targets %>% st_make_valid()
+leaflet() %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+
+  # MPAs: St Anns, Musquash, Gully  (all same colour)
+  addPolygons(
+    data        = mpa_targets_wgs,
+    color       = mpa_col,
+    fillColor   = mpa_col,
+    weight      = 2,
+    fillOpacity = 0.5,
+    popup       = ~paste0("<b>", NAME_E, "</b><br>Status: MPA")
+  ) %>%
+
+  # Eastern Shore Islands AOI  (its own colour)
+  addPolygons(
+    data        = esi_poly_wgs,
+    color       = esi_col,
+    fillColor   = esi_col,
+    weight      = 2,
+    fillOpacity = 0.5,
+    popup       = "Eastern Shore Islands AOI"
+  ) %>%
+
+  # Fundian Channel–Browns Bank AOI  (its own colour)
+  addPolygons(
+    data        = fcbb_poly_wgs,
+    color       = fcbb_col,
+    fillColor   = fcbb_col,
+    weight      = 2,
+    fillOpacity = 0.5,
+    popup       = "Fundian Channel–Browns Bank AOI"
+  #) %>%
+
+  # Manual legend
+  #addLegend(
+   # "bottomright",
+    #colors = c(mpa_col, esi_col, fcbb_col),
+    #labels = c("MPAs (St Anns, Musquash, Gully)",
+               #"Eastern Shore Islands AOI",
+              # "Fundian Channel–Browns Bank AOI"),
+   # title  = "Designation / site",
+   # opacity = 0.7
+  )
+
+
+#colour options above, for now just work with blue and try to get the diversity richness code going
+
+#--------------------------------------------------------------------------------------------------------------------------------
+
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+SABGULFUN_24_COI <- read.csv("OBIS_MCT_SABGULFUN2024_COI_occurrence.csv")
+SABGULFUN_24_12S <- read.csv("OBIS_MCT_SABGULFUN2024_12S_occurrence.csv")
+
+#Combine all polygons into one sf object
+
+# Add a common name/type to each polygon set
+mpa_polys <- mpa_targets_wgs %>%
+  st_geometry() %>%                     # keep just geometry
+  st_as_sf() %>%                        # convert back to sf
+  mutate(
+    site_name = mpa_targets_wgs$NAME_E,
+    site_type = "MPA"
+  )
+
+esi_polys <- esi_poly_wgs %>%
+  st_geometry() %>%
+  st_as_sf() %>%
+  mutate(
+    site_name = "Eastern Shore Islands AOI",
+    site_type = "AOI"
+  )
+
+fcbb_polys <- fcbb_poly_wgs %>%
+  st_geometry() %>%
+  st_as_sf() %>%
+  mutate(
+    site_name = "Fundian Channel–Browns Bank AOI",
+    site_type = "AOI"
+  )
+
+# Bind everything together
+all_polys <- bind_rows(
+  mpa_polys,
+  esi_polys,
+  fcbb_polys
 )
 
+# Ensure it's still sf
+all_polys <- st_as_sf(all_polys)
 
-mpa_targets_wgs <- st_transform(mpa_targets, 4326)  # MULTIPOLYGON
-aoi_targets_wgs <- st_transform(aoi_targets, 4326)  # POINT
+all_polys
+
+#Turn species data into sf points  for the spatial join
+
+species_sf_COI <- SABGULFUN_24_COI %>%
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude)
+  ) %>%
+  # keep only present records if that’s what you want
+  filter(occurrenceStatus == "present") %>%
+  st_as_sf(
+    coords = c("decimalLongitude", "decimalLatitude"),
+    crs = 4326
+  )
+
+species_sf_12S <- SABGULFUN_24_12S %>%
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude)
+  ) %>%
+  # keep only present records if that’s what you want
+  filter(occurrenceStatus == "present") %>%
+  st_as_sf(
+    coords = c("decimalLongitude", "decimalLatitude"),
+    crs = 4326
+  )
+
+#Assign each record to a polygon (spatial join)
+species_in_polys_COI <- st_join(
+  species_sf_COI,
+  all_polys,
+  join = st_within,
+  left = FALSE   # drop species points not in any polygon
+)
+
+species_in_polys_12S <- st_join(
+  species_sf_12S,
+  all_polys,
+  join = st_within,
+  left = FALSE   # drop species points not in any polygon
+)
+
+species_in_polys_COI %>%
+  st_drop_geometry() %>%
+  count(site_name, site_type)
+
+species_in_polys_12S %>%
+  st_drop_geometry() %>%
+  count(site_name, site_type)
+
+#Summary report per polygon
+
+#Total unique species per site
+total_species_COI <- species_in_polys_COI %>%
+  st_drop_geometry() %>%
+  group_by(site_name, site_type) %>%
+  summarise(
+    n_species_total = n_distinct(scientificName),
+    .groups = "drop"
+  )
+
+total_species_12S <- species_in_polys_12S %>%
+  st_drop_geometry() %>%
+  group_by(site_name, site_type) %>%
+  summarise(
+    n_species_total = n_distinct(scientificName),
+    .groups = "drop"
+  )
 
 
-pal_status <- colorFactor(
-  palette = c("blue", "blue"),
-  domain  = c("MPA", "AOI")
+#Unique species by taxonomic class per site
+
+species_by_class_COI <- species_in_polys_COI %>%
+  st_drop_geometry() %>%
+  group_by(site_name, site_type, class) %>%
+  summarise(
+    n_species = n_distinct(scientificName),
+    .groups = "drop"
+  ) %>%
+  arrange(site_name, class)
+
+species_by_class_12S <- species_in_polys_12S %>%
+  st_drop_geometry() %>%
+  group_by(site_name, site_type, class) %>%
+  summarise(
+    n_species = n_distinct(scientificName),
+    .groups = "drop"
+  ) %>%
+  arrange(site_name, class)
+
+
+# Optional wide table
+species_by_class_wide_COI <- species_by_class_COI %>%
+  pivot_wider(
+    names_from  = class,
+    values_from = n_species,
+    values_fill = 0
+  )
+
+# Optional wide table
+species_by_class_wide_12S <- species_by_class_12S %>%
+  pivot_wider(
+    names_from  = class,
+    values_from = n_species,
+    values_fill = 0
+  )
+
+#IUCN and AIS (when I add them from OBIS)
+#species_by_iucn <- species_in_polys %>%
+#  st_drop_geometry() %>%
+#  group_by(site_name, site_type, iucn_status) %>%
+#  summarise(
+#    n_species = n_distinct(scientificName),
+#    .groups = "drop"
+#  )
+
+#alien_summary <- species_in_polys %>%
+#  st_drop_geometry() %>%
+#  filter(alien_invasive == "yes") %>%
+#  group_by(site_name, site_type) %>%
+#  summarise(
+#    n_alien_species = n_distinct(scientificName),
+#    .groups = "drop"
+#  )
+
+#Combined summary table
+summary_report_COI <- total_species_COI %>%
+  #left_join(alien_summary,
+  #         by = c("site_name", "site_type")) %>%
+  #mutate(
+  #  n_alien_species = ifelse(is.na(n_alien_species), 0L, n_alien_species)
+  #) %>%
+  left_join(species_by_class_wide_COI,
+            by = c("site_name", "site_type"))
+
+summary_report_12S <- total_species_12S %>%
+  #left_join(alien_summary,
+  #         by = c("site_name", "site_type")) %>%
+  #mutate(
+  #  n_alien_species = ifelse(is.na(n_alien_species), 0L, n_alien_species)
+  #) %>%
+  left_join(species_by_class_wide_12S,
+            by = c("site_name", "site_type"))
+
+
+#List unique species names per polygon
+
+species_list_COI <- species_in_polys_COI %>%
+  st_drop_geometry() %>%
+  group_by(site_name, site_type) %>%
+  summarise(
+    species = list(unique(scientificName)),
+    .groups = "drop"
+  )
+
+species_list_12S <- species_in_polys_12S %>%
+  st_drop_geometry() %>%
+  group_by(site_name, site_type) %>%
+  summarise(
+    species = list(unique(scientificName)),
+    .groups = "drop"
+  )
+
+
+species_long_COI <- species_in_polys_COI %>%
+  st_drop_geometry() %>%
+  distinct(site_name, site_type, scientificName) %>%
+  arrange(site_name, scientificName)
+
+species_long_12S <- species_in_polys_12S %>%
+  st_drop_geometry() %>%
+  distinct(site_name, site_type, scientificName) %>%
+  arrange(site_name, scientificName)
+
+
+summary_report_with_species_COI <- summary_report_COI %>%
+  left_join(
+    species_list_COI,
+    by = c("site_name", "site_type")
+  )
+
+summary_report_with_species_12S <- summary_report_12S %>%
+  left_join(
+    species_list_12S,
+    by = c("site_name", "site_type")
+  )
+
+##Species Richness Polygons
+
+#Turn occurrences into sf points
+
+# Starting from your original occurrence dataframe
+species_sf_12S <- SABGULFUN_24_12S %>%
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude),
+    occurrenceStatus == "present"       # only present detections
+  ) %>%
+  st_as_sf(
+    coords = c("decimalLongitude", "decimalLatitude"),
+    crs = 4326
+  )
+
+
+# Starting from your original occurrence dataframe
+species_sf_COI <- SABGULFUN_24_COI %>%
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude),
+    occurrenceStatus == "present"       # only present detections
+  ) %>%
+  st_as_sf(
+    coords = c("decimalLongitude", "decimalLatitude"),
+    crs = 4326
+  )
+
+# Make a grid over polygons
+# all_polys = your combined MPA + AOI polygons with site_name, site_type
+
+grid <- st_make_grid(
+  all_polys,
+  cellsize = 0.1,           # tweak this: smaller = finer grid, more cells
+  square   = TRUE
+) %>%
+  st_as_sf() %>%
+  mutate(cell_id = row_number())
+
+
+#Compute species richness per grid cell
+# join points to grid cells
+grid_with_pts_COI <- st_join(
+  grid,
+  species_sf_COI,
+  join = st_intersects,
+  left = TRUE
+)
+
+grid_with_pts_12S <- st_join(
+  grid,
+  species_sf_12S,
+  join = st_intersects,
+  left = TRUE
+)
+
+# richness per cell = number of unique species in that cell
+richness_grid_COI <- grid_with_pts_COI %>%
+  st_drop_geometry() %>%
+  group_by(cell_id) %>%
+  summarise(
+    n_species = n_distinct(scientificName[!is.na(scientificName)]),
+    .groups   = "drop"
+  ) %>%
+  right_join(grid, by = "cell_id") %>%
+  st_as_sf()
+
+richness_grid_12S <- grid_with_pts_12S %>%
+  st_drop_geometry() %>%
+  group_by(cell_id) %>%
+  summarise(
+    n_species = n_distinct(scientificName[!is.na(scientificName)]),
+    .groups   = "drop"
+  ) %>%
+  right_join(grid, by = "cell_id") %>%
+  st_as_sf()
+
+richness_grid_COI <- richness_grid_COI %>%
+  mutate(n_species = ifelse(is.na(n_species), 0L, n_species))
+
+richness_grid_12S <- richness_grid_12S %>%
+  mutate(n_species = ifelse(is.na(n_species), 0L, n_species))
+
+richness_grid_in_poly_COI <- st_intersection(
+  richness_grid_COI,
+  all_polys
+)
+
+richness_grid_in_poly_12S <- st_intersection(
+  richness_grid_12S,
+  all_polys
+)
+
+#Plot
+
+ggplot() +
+  # richness grid inside polygons
+  geom_sf(data = richness_grid_in_poly_12S,
+          aes(fill = n_species),
+          color = NA) +
+  # polygon outlines
+  geom_sf(data = all_polys,
+          fill = NA,
+          color = "black",
+          linewidth = 0.4) +
+  scale_fill_scico(
+    palette   = "davos",
+    direction = -1,
+    end       = 0.9,
+    name      = "Species richness"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank()
+  )
+
+ggplot() +
+  # richness grid inside polygons
+  geom_sf(data = richness_grid_in_poly_COI,
+          aes(fill = n_species),
+          color = NA) +
+  # polygon outlines
+  geom_sf(data = all_polys,
+          fill = NA,
+          color = "black",
+          linewidth = 0.4) +
+  scale_fill_scico(
+    palette   = "davos",
+    direction = -1,
+    end       = 0.9,
+    name      = "Species richness"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank()
+  )
+
+#Stagnant plots created, but I want to create a dynamic plot in leaflet displaying the same species richness information
+
+#Rough copy of interactive species richness plot below
+
+library(sf)
+library(dplyr)
+
+# 12S
+richness_grid_in_poly_12S_poly <- richness_grid_in_poly_12S %>%
+  st_collection_extract("POLYGON")
+
+richness_grid_in_poly_12S_poly <- richness_grid_in_poly_12S_poly[
+  !st_is_empty(richness_grid_in_poly_12S_poly),
+]
+
+# COI
+richness_grid_in_poly_COI_poly <- richness_grid_in_poly_COI %>%
+  st_collection_extract("POLYGON")
+
+richness_grid_in_poly_COI_poly <- richness_grid_in_poly_COI_poly[
+  !st_is_empty(richness_grid_in_poly_COI_poly),
+]
+
+# (optional) outlines, if needed
+all_polys_poly <- all_polys %>%
+  st_collection_extract("POLYGON")
+
+all_polys_poly <- all_polys_poly[!st_is_empty(all_polys_poly), ]
+
+st_geometry_type(richness_grid_in_poly_12S_poly)
+st_geometry_type(richness_grid_in_poly_COI_poly)
+
+library(leaflet)
+library(scico)
+
+pal_12S <- colorNumeric(
+  palette = scico(100, palette = "davos", direction = -1, end = 0.9),
+  domain  = richness_grid_in_poly_12S_poly$n_species
+)
+
+pal_COI <- colorNumeric(
+  palette = scico(100, palette = "davos", direction = -1, end = 0.9),
+  domain  = richness_grid_in_poly_COI_poly$n_species
 )
 
 leaflet() %>%
   addProviderTiles("Esri.OceanBasemap") %>%
 
-  # MPAs: polygons
+  # 12S richness grid layer
   addPolygons(
-    data       = mpa_targets_wgs,
-    color      = pal_status("MPA"),
-    weight     = 2,
-    fillOpacity= 0.5,
-    popup      = ~paste0("<b>", NAME_E, "</b><br>Status: MPA")
+    data        = richness_grid_in_poly_12S_poly,
+    group       = "12S richness",
+    fillColor   = ~pal_12S(n_species),
+    fillOpacity = 0.8,
+    color       = NA,
+    smoothFactor = 0.2,
+    label       = ~paste("12S richness:", n_species)
   ) %>%
 
-  # AOIs: points
-  addCircleMarkers(
-    data   = aoi_targets_wgs,
-    color  = pal_status("AOI"),
-    radius = 6,
-    fillOpacity = 0.9,
-    stroke = TRUE,
-    weight = 1,
-    popup  = ~paste0("<b>", NAME_E, "</b><br>Status: AOI")
+  # COI richness grid layer
+  addPolygons(
+    data        = richness_grid_in_poly_COI_poly,
+    group       = "COI richness",
+    fillColor   = ~pal_COI(n_species),
+    fillOpacity = 0.8,
+    color       = NA,
+    smoothFactor = 0.2,
+    label       = ~paste("COI richness:", n_species)
+  ) %>%
+
+  # polygon outlines (MPAs + AOIs)
+  addPolygons(
+    data        = all_polys_poly,  # or all_polys if that was already fine
+    group       = "MPA/AOI outlines",
+    fillOpacity = 0,
+    color       = "black",
+    weight      = 2,
+    popup       = ~site_name
+  ) %>%
+
+  addLegend(
+    "bottomright",
+    pal     = pal_12S,
+    values  = richness_grid_in_poly_12S_poly$n_species,
+    title   = "12S richness",
+    opacity = 1
+  ) %>%
+  addLegend(
+    "bottomleft",
+    pal     = pal_COI,
+    values  = richness_grid_in_poly_COI_poly$n_species,
+    title   = "COI richness",
+    opacity = 1
+  ) %>%
+  addLayersControl(
+    overlayGroups = c("12S richness", "COI richness", "MPA/AOI outlines"),
+    options = layersControlOptions(collapsed = FALSE)
   )
 
-  # Legend %>%
- # addLegend(
- #   "bottomright",
- #  pal    = pal_status,
-  #  values = c("MPA", "AOI"),
-  #  title  = "Designation status"
-#  )
+
+
+#combine total 12S and COI richness -> total richness per cell = # of unique species in that cell across both markers
+
+#Combine 12s + coi points into one sf
+
+species_sf_all <- bind_rows(
+  species_sf_12S %>% mutate(marker = "12S"),
+  species_sf_COI %>% mutate(marker = "COI")
+)
+
+#join combined points to the grid
+
+grid_with_pts_all <- st_join(
+  grid,
+  species_sf_all,
+  join = st_intersects,
+  left = TRUE
+)
+
+#Total richness per cell (no double counting)
+
+richness_grid_all <- grid_with_pts_all %>%
+  st_drop_geometry() %>%
+  group_by(cell_id) %>%
+  summarise(
+    n_species_total = n_distinct(scientificName[!is.na(scientificName)]),
+    .groups = "drop"
+  ) %>%
+  right_join(grid, by = "cell_id") %>%
+  st_as_sf() %>%
+  mutate(
+    n_species_total = ifelse(is.na(n_species_total), 0L, n_species_total)
+  )
+
+richness_grid_all_in_poly <- st_intersection(
+  richness_grid_all,
+  all_polys
+)
+
+#Add total richness as a leaflet layer
+richness_grid_all_poly <- richness_grid_all_in_poly %>%
+  st_collection_extract("POLYGON")
+richness_grid_all_poly <- richness_grid_all_poly[!st_is_empty(richness_grid_all_poly), ]
+
+
+# Compare richness per cell: total vs 12S vs COI
+rich_compare <- richness_grid_all %>%
+  st_drop_geometry() %>%
+  select(cell_id, n_species_total) %>%
+  left_join(
+    richness_grid_12S %>%
+      st_drop_geometry() %>%
+      select(cell_id, n_species_12S = n_species),
+    by = "cell_id"
+  ) %>%
+  left_join(
+    richness_grid_COI %>%
+      st_drop_geometry() %>%
+      select(cell_id, n_species_COI = n_species),
+    by = "cell_id"
+  )
+
+# Quick look
+head(rich_compare)
+
+# Cells where total richness differs from at least one marker
+diff_cells <- rich_compare %>%
+  filter(
+    n_species_total != n_species_12S |
+      n_species_total != n_species_COI
+  )
+
+nrow(diff_cells)
+head(diff_cells)
+
+
+#Original colour palette
+pal_all <- colorNumeric(
+  palette = scico(100, palette = "davos", direction = -1, end = 0.9),
+  domain  = richness_grid_all_poly$n_species_total
+)
+
+#WesAnderson colour palette
+
+library(wesanderson)
+
+# Helper to convert any Wes palette into a continuous gradient
+wes_cont <- function(name, n = 100) {
+  colorRampPalette(wes_palette(name, type = "continuous"))(n)
+}
+
+pal_zissou   <- wes_cont("Zissou1",   100)
+pal_moon2    <- wes_cont("Moonrise2", 100)
+pal_rushmore <- wes_cont("Rushmore1", 100)
+
+#Play around with colours here
+
+# leaflet-compatible numeric palettes
+pal_all <- colorNumeric(
+  palette  = pal_zissou,
+  domain   = richness_grid_all_poly$n_species_total,
+  na.color = "transparent"
+)
+
+pal_12S <- colorNumeric(
+  palette  = pal_moon1,
+  domain   = richness_grid_in_poly_12S_poly$n_species,
+  na.color = "transparent"
+)
+
+pal_COI <- colorNumeric(
+  palette  = pal_rushmore,
+  domain   = richness_grid_in_poly_COI_poly$n_species,
+  na.color = "transparent"
+)
+
+leaflet() %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+
+  # ---- Total richness (12S + COI) ----
+addPolygons(
+  data        = richness_grid_all_poly,
+  group       = "Total richness (12S + COI)",
+  fillColor   = ~pal_all(n_species_total),
+  fillOpacity = 0.8,
+  color       = NA,
+  label       = ~paste("Total richness:", n_species_total)
+) %>%
+
+  # ---- 12S richness ----
+addPolygons(
+  data        = richness_grid_in_poly_12S_poly,
+  group       = "12S richness",
+  fillColor   = ~pal_12S(n_species),
+  fillOpacity = 0.8,
+  color       = NA,
+  smoothFactor = 0.2,
+  label       = ~paste("12S richness:", n_species)
+) %>%
+
+  # ---- COI richness ----
+addPolygons(
+  data        = richness_grid_in_poly_COI_poly,
+  group       = "COI richness",
+  fillColor   = ~pal_COI(n_species),
+  fillOpacity = 0.8,
+  color       = NA,
+  smoothFactor = 0.2,
+  label       = ~paste("COI richness:", n_species)
+) %>%
+
+  # ---- MPA / AOI outlines ----
+addPolygons(
+  data        = all_polys_poly,
+  group       = "MPA/AOI outlines",
+  fillOpacity = 0,
+  color       = "black",
+  weight      = 2,
+  popup       = ~site_name
+) %>%
+
+  # ---- Legends ----
+addLegend(
+  position = "bottomright",
+  pal      = pal_all,
+  values   = richness_grid_all_poly$n_species_total,
+  title    = "Total richness\n(12S + COI)",
+  opacity  = 1
+) %>%
+  addLegend(
+    position = "bottomleft",
+    pal      = pal_12S,
+    values   = richness_grid_in_poly_12S_poly$n_species,
+    title    = "12S richness",
+    opacity  = 1
+  ) %>%
+  addLegend(
+    position = "topright",
+    pal      = pal_COI,
+    values   = richness_grid_in_poly_COI_poly$n_species,
+    title    = "COI richness",
+    opacity  = 1
+  ) %>%
+
+  # ---- Layer control ----
+addLayersControl(
+  overlayGroups = c(
+    "Total richness (12S + COI)",
+    "12S richness",
+    "COI richness",
+    "MPA/AOI outlines"
+  ),
+  options = layersControlOptions(collapsed = FALSE)
+)
+
+
+
+
+
+#---------------------------------------------------------
+
+#Final plot code
+pal_vec <- wes_palette("Zissou1", 100, type = "continuous")
+pal_vec <- as.character(pal_vec)   # strip "palette" class
+
+pal_12S <- colorNumeric(
+  palette  = pal_vec,
+  domain   = richness_grid_in_poly_12S_poly$n_species,
+  na.color = "transparent"
+)
+
+pal_COI <- colorNumeric(
+  palette  = pal_vec,
+  domain   = richness_grid_in_poly_COI_poly$n_species,
+  na.color = "transparent"
+)
+
+pal_all <- colorNumeric(
+  palette  = pal_vec,
+  domain   = richness_grid_all_poly$n_species_total,
+  na.color = "transparent"
+)
+
+
+#plot in leaflet
+leaflet() %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+
+  #Total richness layer
+  addPolygons(
+    data        = richness_grid_all_poly,
+    group       = "Total richness (12S + COI)",
+    fillColor   = ~pal_all(n_species_total),
+    fillOpacity = 0.8,
+    color       = NA,
+    label       = ~paste("Total richness:", n_species_total)
+  ) %>%
+
+  # 12S richness grid layer
+  addPolygons(
+    data        = richness_grid_in_poly_12S_poly,
+    group       = "12S richness",
+    fillColor   = ~pal_12S(n_species),
+    fillOpacity = 0.8,
+    color       = NA,
+    smoothFactor = 0.2,
+    label       = ~paste("12S richness:", n_species)
+  ) %>%
+
+  # COI richness grid layer
+  addPolygons(
+    data        = richness_grid_in_poly_COI_poly,
+    group       = "COI richness",
+    fillColor   = ~pal_COI(n_species),
+    fillOpacity = 0.8,
+    color       = NA,
+    smoothFactor = 0.2,
+    label       = ~paste("COI richness:", n_species)
+  ) %>%
+
+  # polygon outlines (MPAs + AOIs)
+  addPolygons(
+    data        = all_polys_poly,  # or all_polys if that was already fine
+    group       = "MPA/AOI outlines",
+    fillOpacity = 0,
+    color       = "black",
+    weight      = 2,
+    popup       = ~site_name
+  ) %>%
+
+  addLegend(
+    "bottomright",
+    pal     = pal_12S,
+    values  = richness_grid_in_poly_12S_poly$n_species,
+    title   = "12S richness",
+    opacity = 1
+  ) %>%
+  addLegend(
+    "bottomleft",
+    pal     = pal_COI,
+    values  = richness_grid_in_poly_COI_poly$n_species,
+    title   = "COI richness",
+    opacity = 1
+  ) %>%
+  addLayersControl(
+    overlayGroups = c(
+      "Total richness (12S + COI)",
+      "12S richness",
+      "COI richness",
+      "MPA/AOI outlines"
+    )
+  )
+
+###############################################################################
+#Want the same legend with a shared maximum richness
+max_rich <- max(
+  richness_grid_all_poly$n_species_total,
+  richness_grid_in_poly_12S_poly$n_species,
+  richness_grid_in_poly_COI_poly$n_species,
+  na.rm = TRUE
+)
+
+# If you like starting at 0:
+rich_domain <- c(0, max_rich)
+
+
+leaflet() %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+
+  #Total richness layer
+  addPolygons(
+    data        = richness_grid_all_poly,
+    group       = "Total richness (12S + COI)",
+    fillColor   = ~pal_all(n_species_total),
+    fillOpacity = 0.8,
+    color       = NA,
+    label       = ~paste("Total richness:", n_species_total)
+  ) %>%
+
+  # 12S richness grid layer
+  addPolygons(
+    data        = richness_grid_in_poly_12S_poly,
+    group       = "12S richness",
+    fillColor   = ~pal_12S(n_species),
+    fillOpacity = 0.8,
+    color       = NA,
+    smoothFactor = 0.2,
+    label       = ~paste("12S richness:", n_species)
+  ) %>%
+
+  # COI richness grid layer
+  addPolygons(
+    data        = richness_grid_in_poly_COI_poly,
+    group       = "COI richness",
+    fillColor   = ~pal_COI(n_species),
+    fillOpacity = 0.8,
+    color       = NA,
+    smoothFactor = 0.2,
+    label       = ~paste("COI richness:", n_species)
+  ) %>%
+
+  # polygon outlines (MPAs + AOIs)
+  addPolygons(
+    data        = all_polys_poly,  # or all_polys if that was already fine
+    group       = "MPA/AOI outlines",
+    fillOpacity = 0,
+    color       = "black",
+    weight      = 2,
+    popup       = ~site_name
+  ) %>%
+    addLegend(
+      "bottomright",
+      pal    = pal_all,
+      values = rich_domain,
+      title  = "Total richness\n(12S + COI)",
+      opacity = 1
+  ) %>%
+  addLayersControl(
+    overlayGroups = c(
+      "Total richness (12S + COI)",
+      "12S richness",
+      "COI richness",
+      "MPA/AOI outlines"
+    )
+  )
+
+#########################################################################################
+
+#Clean single code below - double check that everything looks okay
+
+## ===== Unified richness palettes + leaflet map (Wes Anderson, shared scale) =====
+
+library(sf)
+library(dplyr)
+library(leaflet)
+library(wesanderson)
+
+## 1. Make sure all richness layers & outlines are polygons (no geometry collections)
+
+richness_grid_all_poly <- richness_grid_all_in_poly %>%
+  st_collection_extract("POLYGON")
+richness_grid_all_poly <- richness_grid_all_poly[!st_is_empty(richness_grid_all_poly), ]
+
+richness_grid_in_poly_12S_poly <- richness_grid_in_poly_12S %>%
+  st_collection_extract("POLYGON")
+richness_grid_in_poly_12S_poly <- richness_grid_in_poly_12S_poly[!st_is_empty(richness_grid_in_poly_12S_poly), ]
+
+richness_grid_in_poly_COI_poly <- richness_grid_in_poly_COI %>%
+  st_collection_extract("POLYGON")
+richness_grid_in_poly_COI_poly <- richness_grid_in_poly_COI_poly[!st_is_empty(richness_grid_in_poly_COI_poly), ]
+
+all_polys_poly <- all_polys %>%
+  st_collection_extract("POLYGON")
+all_polys_poly <- all_polys_poly[!st_is_empty(all_polys_poly), ]
+
+
+## 2. Shared richness domain across TOTAL, 12S, and COI
+
+max_rich <- max(
+  richness_grid_all_poly$n_species_total,
+  richness_grid_in_poly_12S_poly$n_species,
+  richness_grid_in_poly_COI_poly$n_species,
+  na.rm = TRUE
+)
+
+rich_domain <- c(0, max_rich)
+
+
+## 3. One Wes Anderson palette for everything (Zissou1 continuous)
+
+wes_cont <- function(name, n = 100) {
+  colorRampPalette(wes_palette(name, type = "continuous"))(n)
+}
+
+pal_vec <- wes_cont("Zissou1", 100)
+
+pal_rich <- colorNumeric(
+  palette  = pal_vec,
+  domain   = rich_domain,      # SAME scale for all 3 layers
+  na.color = "transparent"
+)
+
+
+## 4. Leaflet map with standardized colours & one legend
+
+leaflet() %>%
+  # ---- Basemaps ----
+addProviderTiles(
+  providers$CartoDB.Positron,
+  group = "CartoDB Positron"
+) %>%
+  addProviderTiles(
+    providers$Esri.OceanBasemap,
+    group = "Esri Ocean Basemap"
+  ) %>%
+  addProviderTiles(
+    providers$Esri.WorldImagery,
+    group = "Esri World Imagery"
+  ) %>%
+
+  # ---- 12S richness ----
+addPolygons(
+  data        = richness_grid_in_poly_12S_poly,
+  group       = "12S richness",
+  fillColor   = ~pal_rich(n_species),
+  fillOpacity = 0.8,
+  color       = NA,
+  smoothFactor = 0.2,
+  label       = ~paste("12S richness:", n_species)
+) %>%
+
+  # ---- COI richness ----
+addPolygons(
+  data        = richness_grid_in_poly_COI_poly,
+  group       = "COI richness",
+  fillColor   = ~pal_rich(n_species),
+  fillOpacity = 0.8,
+  color       = NA,
+  smoothFactor = 0.2,
+  label       = ~paste("COI richness:", n_species)
+) %>%
+
+  # ---- Total richness (12S + COI) ----
+addPolygons(
+  data        = richness_grid_all_poly,
+  group       = "Total richness (12S + COI)",
+  fillColor   = ~pal_rich(n_species_total),
+  fillOpacity = 0.8,
+  color       = NA,
+  label       = ~paste("Total richness:", n_species_total)
+) %>%
+
+  # ---- MPA / AOI outlines ----
+addPolygons(
+  data        = all_polys_poly,
+  group       = "MPA/AOI outlines",
+  fillOpacity = 0,
+  color       = "black",
+  weight      = 2,
+  popup       = ~site_name
+) %>%
+
+  # ---- One shared legend for richness ----
+addLegend(
+  position = "bottomright",
+  pal      = pal_rich,
+  values   = rich_domain,
+  title    = "Species richness",
+  opacity  = 1
+) %>%
+
+  # ---- Layer control ----
+addLayersControl(
+  baseGroups = c("CartoDB Positron", "Esri Ocean Basemap", "Esri World Imagery"),
+  overlayGroups = c(
+    "Total richness (12S + COI)",
+    "12S richness",
+    "COI richness",
+    "MPA/AOI outlines"
+  ),
+  options = layersControlOptions(collapsed = FALSE)
+) %>%
+  # Default basemap selection (optional)
+  hideGroup("Esri Ocean Basemap")
+
+
+
+#This code provides a basemap toggle - PAUSE HERE - THOUGHTS FOR EDITS BELOW
+
+#I could shrink the grids and/or limit the grids to the zones within the AOI or MPA
+#another option was to match the size specific to the area, like specify 500m or something
+
+
+
+
+#BRAINSTORMING
+
+#Obtain species list from above - TO-DO
+#Add species sillouettes for visual application - TO-DO
+
+#Create Species summary dataframe based on polygon location
+
+species_summ <- SABGULFUN_24_12S %>%
+  select(
+    decimalLatitude,
+    decimalLongitude,
+    occurrenceStatus,
+    class,
+    scientificName,
+    #IUCN status,
+    #AIS species presence
+  )
+
+
+
+
+
+---------------------------------------------------------------------------------------------------------------------------------
+##Brainstorming
+#I want to select a polygon and have a list with the number of unique species, number of threatened species from the IUCN status,
+#and the number of unique species by groups (Fish, mammals, sharks and rays, turtles)
+#THEN I want to add images associated with these numbers
+
+#I want to select a polygon and have the list of species occurrence (present) show up
+
+##Questions
+#Do I want the details of the reads in the columns?
+----------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
 
