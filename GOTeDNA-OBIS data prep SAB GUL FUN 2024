@@ -1,5 +1,4 @@
 #This document is in two parts, the first organizing 12S and COI data for the GOTeDNA templates, and the second part using those templates for OBIS 
-#NOTE: This code is missing the lib_id and seq_lib_id values mandatory for FAIRe standards for COI ONLY - FIX TOMORROW FIRST THING
 
 #GOTeDNA-22 St Anns Bank 2024 - 12S, COI and metadata
 
@@ -395,7 +394,7 @@ GOTeDNA_22_12S <- GOTeDNA_22_12S %>%
   )
 
 #View df
-View(GOTeDNA_22_12S)
+#View(GOTeDNA_22_12S)
 
 
 #Do the same for COI
@@ -579,7 +578,7 @@ GOTeDNA_22_COI <- GOTeDNA_22_COI %>%
 
 #Combine 12S and COI df
 GOTeDNA_22 <- rbind(GOTeDNA_22_12S, GOTeDNA_22_COI)
-View(GOTeDNA_22)
+#View(GOTeDNA_22)
 
 
 #Write excel file and input into Google sheets GOTeDNA-22
@@ -748,8 +747,8 @@ map_clean <- map_clean %>%
 
 occurrence <- GOT22_joined %>%
   mutate(
-    protocol_ID = GOTeDNA_ID.x,
-    protocolVersion = protocolVersion,
+    GOTeDNAprotocol_ID= GOTeDNA_ID.x,
+    GOTeDNAprotocolVersion = protocolVersion,
     project_contact = ownerContact,
     bibliographicCitation = bibliographicCitation,
     basisOfRecord = basisOfRecord.x,
@@ -786,7 +785,6 @@ occurrence <- GOT22_joined %>%
     month = month(eventDate),
     bibliographicCitation = bibliographicCitation,
     year = year(eventDate),
-    scientificNameAuthorship = ownerContact,
     occurrenceID = occurrenceID,
     samp_name = materialSampleID,
     project_name = "Perley Offshore 2024",
@@ -977,7 +975,7 @@ cleaned_occ <- occur %>%
     occurrenceID, bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
     organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,
     basisOfRecord, locationID,  recordedBy, country, datasetID, occurrenceStatus, minimumDepthInMeters, maximumDepthInMeters,
-    language,  month, year, scientificNameAuthorship, taxonID, scientificNameID, kingdom, phylum, class, order, family, genus
+    language,  month, year, taxonID, scientificNameID, kingdom, phylum, class, order, family, genus
   )
 
 cleaned_dna <- dna %>%
@@ -1016,8 +1014,8 @@ emof <- dna_df %>%
 #Insert proper FAIRe names from occurrence below
 
 url_map <- c(
-  protocol_ID              = "https://github.com/GOTeDNA-OBON",
-  protocolVersion          = "https://github.com/GOTeDNA-OBON",
+  GOTeDNAprotocol_ID              = "https://github.com/GOTeDNA-OBON",
+  GOTeDNAprotocolVersion          = "https://github.com/GOTeDNA-OBON",
   LClabel                  = "https://github.com/GOTeDNA-OBON",
   ownerContact             = "https://github.com/GOTeDNA-OBON",
   samplingStation          = "https://github.com/GOTeDNA-OBON",
@@ -1036,7 +1034,7 @@ emof <- dna_df %>%
     seq_id, samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
     assay_name, assay_type, targetTaxonomicAssay, samp_collect_device, samp_size_unit, filtrationType, filter_material,
     filter_name, samp_store_sol, samp_store_temp, nucl_acid_ext_kit, nucl_acid_ext_modify, geo_loc_name, technical_rep_id,
-    project_contact, protocol_ID, protocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
+    project_contact, GOTeDNAprotocol_ID, GOTeDNAprotocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
     depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1, seq_run_id, lib_id
   ) %>%
   distinct() %>%
@@ -1190,10 +1188,39 @@ GOT22_joined <- GOT22_joined %>%
 
 
 #Set up occurrence dataframe
+
+map_raw <- read.csv("OBIS_Perley_2024_COI.csv", stringsAsFactors = FALSE)
+
+map_long <- bind_rows(
+  map_raw %>%
+    select(Seq_Run_ID, lib_id = Lib_ID) %>%
+    mutate(lib_id = gsub("_", ".", lib_id)),
+  
+  map_raw %>%
+    select(Seq_Run_ID = Seq_Run_ID.1,
+           lib_id    = Lib_ID.1) %>%
+    mutate(lib_id = gsub("_", ".", lib_id))
+) %>%
+  filter(!is.na(lib_id) & lib_id != "")
+
+map_clean <- map_long %>%
+  filter(!str_detect(lib_id, "ENEG")) %>%
+  mutate(
+    # Extract SAB24.EDNA.014 from SAB24.EDNA.014.S1.MiSeq_250131
+    materialSampleID = str_extract(lib_id, "^[A-Za-z0-9]+\\.EDNA\\.\\d{3}")
+  ) %>%
+  distinct(materialSampleID, .keep_all = TRUE)
+
+map_clean <- map_clean %>%
+  # treat blanks as NA
+  mutate(Seq_Run_ID = na_if(Seq_Run_ID, "")) %>%
+  # fill seq_run_id down within the whole table
+  fill(Seq_Run_ID)
+
 occurrence <- GOT22_joined %>%
   mutate(
-    protocol_ID = GOTeDNA_ID.x,
-    protocolVersion = protocolVersion,
+    GOTeDNAprotocol_ID = GOTeDNA_ID.x,
+    GOTeDNAprotocolVersion = protocolVersion,
     project_contact = ownerContact,
     bibliographicCitation = bibliographicCitation,
     basisOfRecord = basisOfRecord.x,
@@ -1230,7 +1257,6 @@ occurrence <- GOT22_joined %>%
     month = month(eventDate),
     bibliographicCitation = bibliographicCitation,
     year = year(eventDate),
-    scientificNameAuthorship = ownerContact,
     occurrenceID = occurrenceID,
     samp_name = materialSampleID,
     project_name = "Perley Offshore 2024",
@@ -1277,7 +1303,8 @@ occurrence <- GOT22_joined %>%
   #!is.na(scientificName)
   #) %>%
   left_join(map_clean, by = "materialSampleID"
-  )
+  ) %>%
+  mutate(seq_run_id = Seq_Run_ID)
 
 #Look up AphiaID (taxonID) from WoRMS by ScientificName
 
@@ -1404,9 +1431,9 @@ occur <- occurrence
 dna <- dna_df
 
 #Check that the taxa names match with WoRMS
-worms <- match_taxa(unique(occur$scientificName)) #choose option 1 each time
+worms <- match_taxa(unique(occur$scientificName)) #choose option 1 each time of match options
 
-occur <- merge(occur, worms, by="scientificName")
+#occur <- merge(occur, worms, by="scientificName")
 colnames(occur)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
 
 #Check that all required fields are present in the occurrence table
@@ -1419,7 +1446,7 @@ cleaned_occ <- occur %>%
     occurrenceID, bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
     organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,
     basisOfRecord, locationID,  recordedBy, country, datasetID, occurrenceStatus, minimumDepthInMeters, maximumDepthInMeters,
-    language,  month, year, scientificNameAuthorship, taxonID, scientificNameID, kingdom, phylum, class, order, family, genus
+    language,  month, year, taxonID, scientificNameID, kingdom, phylum, class, order, family, genus
   )
 
 cleaned_dna <- dna %>%
@@ -1458,8 +1485,8 @@ emof <- dna_df %>%
 #Insert proper FAIRe names from occurrence below
 
 url_map <- c(
-  protocol_ID              = "https://github.com/GOTeDNA-OBON",
-  protocolVersion          = "https://github.com/GOTeDNA-OBON",
+  GOTeDNAprotocol_ID              = "https://github.com/GOTeDNA-OBON",
+  GOTeDNAprotocolVersion          = "https://github.com/GOTeDNA-OBON",
   LClabel                  = "https://github.com/GOTeDNA-OBON",
   ownerContact             = "https://github.com/GOTeDNA-OBON",
   samplingStation          = "https://github.com/GOTeDNA-OBON",
@@ -1478,8 +1505,8 @@ emof <- dna_df %>%
     seq_id, samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
     assay_name, assay_type, targetTaxonomicAssay, samp_collect_device, samp_size_unit, filtrationType, filter_material,
     filter_name, samp_store_sol, samp_store_temp, nucl_acid_ext_kit, nucl_acid_ext_modify, geo_loc_name, technical_rep_id,
-    project_contact, protocol_ID, protocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
-    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1
+    project_contact, GOTeDNAprotocol_ID, GOTeDNAprotocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
+    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1, seq_run_id, lib_id
   ) %>%
   distinct() %>%
   mutate(across(-occurrenceID, as.character)) %>%
