@@ -578,6 +578,13 @@ df_Musq12S <- df_Musq12S %>%
   )
 
 # Safe extractor for a given rank using the 'scientificname' column
+library(dplyr)
+library(purrr)
+library(stringr)
+library(tibble)
+library(worrms)
+
+# Safe extractor
 .rank_val <- function(classif, rank_name) {
   if (is.null(classif)) return(NA_character_)
   if (!all(c("rank","scientificname") %in% names(classif))) return(NA_character_)
@@ -586,9 +593,19 @@ df_Musq12S <- df_Musq12S %>%
 }
 
 get_taxonomy_for_id <- function(id) {
-  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  # guard against blanks / non-numeric ids
+  if (is.na(id) || id == "" || !str_detect(id, "^[0-9]+$")) {
+    return(tibble(
+      taxonID = as.character(id),
+      kingdom = NA_character_, phylum = NA_character_, class = NA_character_,
+      order = NA_character_, family = NA_character_, genus = NA_character_
+    ))
+  }
+  
+  classif <- tryCatch(wm_classification(as.integer(id)), error = function(e) NULL)
+  
   tibble(
-    taxonID = id,
+    taxonID = as.character(id),
     kingdom = .rank_val(classif, "Kingdom"),
     phylum  = .rank_val(classif, "Phylum"),
     class   = .rank_val(classif, "Class"),
@@ -598,20 +615,23 @@ get_taxonomy_for_id <- function(id) {
   )
 }
 
-# Build a lookup for the unique AphiaIDs present in df
-unique_ids <- unique(df_Musq12S$taxonID)
+# Build taxonomy lookup ONLY for real AphiaIDs
+unique_ids <- df_Musq12S %>%
+  distinct(taxonID) %>%
+  filter(!is.na(taxonID), taxonID != "", str_detect(taxonID, "^[0-9]+$")) %>%
+  pull(taxonID)
+
 taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
 
-# (Optional) see how many came back totally empty
-# sum(rowSums(is.na(taxonomy_lookup[,c("kingdom","phylum","class","order","family","genus")])) == 6)
-
-# Join back to your df
+# Join back (keep blanks for non-matches)
 df_Musq12S <- df_Musq12S %>%
+  mutate(taxonID = as.character(taxonID)) %>%
   select(-any_of(c("kingdom","phylum","class","order","family","genus"))) %>%
-  left_join(taxonomy_lookup, by = "taxonID")
+  left_join(taxonomy_lookup, by = "taxonID") %>%
+  mutate(across(c(kingdom, phylum, class, order, family, genus), ~replace_na(.x, "")))
 
 #View df
-#View(df_Musq12S)
+View(df_Musq12S)
 
 #Fill out and edit other data columns with project details
 df_Musq12S <- df_Musq12S %>%
@@ -845,5 +865,4 @@ writexl::write_xlsx(
   GOTeDNA24_SampleMetabarcoding_filtered,
   "GOTeDNA-24_Sample-Metabarcoding_12SMusquash2023_Final_absentvalues.xlsx"
 )
-
 
