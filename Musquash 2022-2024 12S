@@ -1,0 +1,849 @@
+#This file contains information from GOTeDNA_MetadataCode.R and Musquash12S.R
+#Metadata format for GOTeDNA
+
+setwd("~/GOTeDNA_DataPrep/Musquash")
+
+#Read in metadata file
+MusqMeta <- read_xlsx("Musquash12S_2022_2024_metadata.xlsx")
+Musq2022 <- read.csv("MUSQ_SamplingMetadata_2022.csv")
+Musq2023 <- read_xlsx("MUSQ_SamplingMetadata_2023.xlsx")
+Musq2024 <- read_xlsx("MUSQ_SamplingMetadata_2024.xlsx", sheet =2)
+
+#Create df with GOTeDNA columns and add rows for species names from bioinformatic output file (xlsx/csv)
+
+df_Metadata <- data.frame(
+  Project_ID = character(length(MusqMeta$`File Name`)),
+  GOTeDNA_ID = character(length(MusqMeta$`File Name`)),
+  protocol_version = character(length(MusqMeta$`File Name`)),
+  protocolVersion_rationale = character(length(MusqMeta$`File Name`)),
+  ownerContact = character(length(MusqMeta$`File Name`)),
+  bibliographicCitation = character(length(MusqMeta$`File Name`)),
+  basisOfRecord = character(length(MusqMeta$`File Name`)),
+  materialSampleID = character(length(MusqMeta$`File Name`)),
+  eventID = character(length(MusqMeta$`File Name`)),
+  eventDate = character(length(MusqMeta$`File Name`)),
+  eventTime = character(length(MusqMeta$`File Name`)),
+  decimalLatitude = character(length(MusqMeta$`File Name`)),
+  decimalLongitude = character(length(MusqMeta$`File Name`)),
+  recordedBy = character(length(MusqMeta$`File Name`)),
+  sampleDepth = character(length(MusqMeta$`File Name`)),
+  waterTemp = character(length(MusqMeta$`File Name`)),
+  volumeFiltered = character(length(MusqMeta$`File Name`)),
+  dateFiltration = character(length(MusqMeta$`File Name`)),
+  timeFiltration = character(length(MusqMeta$`File Name`)),
+  controlType = character(length(MusqMeta$`File Name`)),
+  LClabel = character(length(MusqMeta$`File Name`)),
+  samplingStation = character(length(MusqMeta$`File Name`)),
+  waterColumnDepth = character(length(MusqMeta$`File Name`)),
+  tide = character(length(MusqMeta$`File Name`)),
+  depthWaterTemp = character(length(MusqMeta$`File Name`)),
+  totalDNAconc = character(length(MusqMeta$`File Name`)),
+  unitsDNAconc = character(length(MusqMeta$`File Name`)),
+  stringsAsFactors = FALSE
+)
+
+
+#View dataframe
+#View(df_Metadata)
+
+#Dataframe created! Next, we need to fill it with the Musquash metadata file
+
+df_Metadata <- MusqMeta %>%
+
+  mutate(
+    Project_ID = NA_character_,
+    GOTeDNA_ID = NA_character_,
+    protocol_version = "1",
+    protocolVersion_rationale = NA_character_,
+    ownerContact = "nick.jeffery@dfo-mpo.gc.ca",
+    bibliographicCitation = NA_character_,
+    basisOfRecord = "materialSample",
+    materialSampleID = `File Name`,
+    eventID = NA_character_,
+    eventDate = Year,
+    eventTime = NA_character_,
+    decimalLatitude = Latitude,
+    decimalLongitude = Longitude,
+    recordedBy = NA_character_,
+    sampleDepth = Sample_type,
+    waterTemp = Temperature,
+    volumeFiltered = "1",
+    dateFiltration = NA_character_,
+    timeFiltration = NA_character_,
+    controlType = NA_character_,
+    LClabel = NA_character_,
+    samplingStation = Water_Sample_location,
+    waterColumnDepth = `Water Depth`,
+    tide = NA_character_,
+    depthWaterTemp = NA_character_,
+    totalDNAconc = NA_character_,
+    unitsDNAconc = NA_character_,
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, protocol_version, protocolVersion_rationale, ownerContact,
+    bibliographicCitation, basisOfRecord, materialSampleID, eventID, eventDate, eventTime,
+    decimalLatitude, decimalLongitude, recordedBy, sampleDepth, waterTemp, volumeFiltered,
+    dateFiltration, timeFiltration, controlType, LClabel, samplingStation, waterColumnDepth,
+    tide, depthWaterTemp, totalDNAconc, unitsDNAconc
+  )
+
+# View dataframe
+#View(df_Metadata)
+
+#Fill out and edit other data columns with project details
+df_Metadata <- df_Metadata %>%
+  mutate(
+    # IDs
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-")
+  )
+
+#Add 'recordedBy' information
+
+df_Metadata <- df_Metadata %>%
+  mutate(
+    # Extract 3-digit number from IDs like "Sample-001"
+    sample_num = suppressWarnings(
+      as.integer(str_extract(materialSampleID, "(?<=^Sample-)[0-9]+"))
+    ),
+
+    recordedBy = case_when(
+      # 2022: IDs starting with M, 2, or 3
+      str_starts(materialSampleID, "M") |
+        str_starts(materialSampleID, "2") |
+        str_starts(materialSampleID, "3") ~
+        "Nick Jeffery | Ryan Stanley | Andrew Cooper",
+
+      # 2023: Sample-001 .. Sample-086
+      str_starts(materialSampleID, "Sample-") & !is.na(sample_num) &
+        sample_num >= 1 & sample_num <= 86 ~
+        "Nick Jeffery | Ryan Stanley | Andrew Cooper | Mark Wilcox | Rachel Horwitz",
+
+      # 2024: Sample-093 .. Sample-167
+      str_starts(materialSampleID, "Sample-") & !is.na(sample_num) &
+        sample_num >= 93 & sample_num <= 167 ~
+        "Nick Jeffery | Ryan Stanley | Andrew Cooper | Kaleb Zelman",
+
+      # otherwise keep whatever was there (or NA if none)
+      TRUE ~ recordedBy
+    )
+  ) %>%
+  select(-sample_num)
+
+
+#View DF
+#View(df_Metadata)
+
+
+#Separate dataframes by year and sample depth
+
+#Filter to only have 2024 data for GOTeDNA-16
+Musquash2024 <- df_Metadata %>%
+  filter(!is.na(eventDate) & str_detect(eventDate, "2024"))
+
+#View(Musquash2024)
+
+
+#Filter to have 2023 data for GOTeDNA-24
+Musquash2023 <- df_Metadata %>%
+  filter(!is.na(eventDate) & str_detect(eventDate, "2023"))
+
+#View(Musquash2023)
+
+
+#Filter to have 2022 data for GOTeDNA-20
+Musquash2022_surface <- df_Metadata %>%
+  filter(
+    !is.na(eventDate) & str_detect(eventDate, "2022"),
+    !is.na(sampleDepth) & str_detect(sampleDepth, "surface")
+    )
+
+#View(Musquash2022_surface)
+
+#Filter to have 2022 data for GOTeDNA-15
+Musquash2022_bottom <- df_Metadata %>%
+  filter(
+    !is.na(eventDate) & str_detect(eventDate, "2022"),
+    !is.na(sampleDepth) & str_detect(sampleDepth, "bottom")
+    )
+
+#View(Musquash2022_bottom)
+
+---
+
+GOTeDNA_16_Metadata <- Musquash2024 %>%
+
+  mutate(
+    # IDs
+    Project_ID = "Musquash MPA eDNA NB 2024",
+    GOTeDNA_ID = "16",
+    protocol_version = "1",
+    protocolVersion_rationale = "ABL - BIO",
+    ownerContact = "nick.jeffery@dfo-mpo.gc.ca",
+    basisOfRecord = "materialSample",
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    volumeFiltered = "1",
+    sampleDepth = "0.5",
+    unitsDNAconc = "ng/µL"
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, protocol_version, protocolVersion_rationale, ownerContact,
+    bibliographicCitation, basisOfRecord, materialSampleID, eventID, eventDate, eventTime,
+    decimalLatitude, decimalLongitude, recordedBy, sampleDepth, waterTemp, volumeFiltered,
+    dateFiltration, timeFiltration, controlType, LClabel, samplingStation, waterColumnDepth,
+    tide, depthWaterTemp, totalDNAconc, unitsDNAconc
+  )
+
+
+# keep all rows from GOTeDNA_16_Metadata; add chosen cols from Musq2024
+GOTeDNA_16_Metadata <- GOTeDNA_16_Metadata %>%
+  left_join(
+    Musq2024 %>% select(SampleID, Site, Date, `eDNA Conc (ng/µL)`),
+    by = c("samplingStation" = "SampleID")
+  )
+
+#View(GOTeDNA_16_Metadata)
+
+#Now that all of the metadata is combined, clean up and reorganize into proper GOTeDNA metadata format
+
+GOTeDNA16_MetadataFinal <- GOTeDNA_16_Metadata %>%
+
+  mutate(
+    materialSampleID = samplingStation,
+    samplingStation = Site,
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    eventDate = Date,
+    totalDNAconc = `eDNA Conc (ng/µL)`
+
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, protocol_version, protocolVersion_rationale, ownerContact,
+    bibliographicCitation, basisOfRecord, materialSampleID, eventID, eventDate, eventTime,
+    decimalLatitude, decimalLongitude, recordedBy, sampleDepth, waterTemp, volumeFiltered,
+    dateFiltration, timeFiltration, controlType, LClabel, samplingStation, waterColumnDepth,
+    tide, depthWaterTemp, totalDNAconc, unitsDNAconc
+  )
+
+#View(GOTeDNA16_MetadataFinal)
+
+
+----
+GOTeDNA_24_Metadata <- Musquash2023 %>%
+
+  mutate(
+
+    Project_ID = "Musquash MPA eDNA NB 2023",
+    GOTeDNA_ID = "24",
+    protocol_version = "1",
+    protocolVersion_rationale = "CEGA, NL",
+    ownerContact = "nick.jeffery@dfo-mpo.gc.ca",
+    basisOfRecord = "materialSample",
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    volumeFiltered = "1",
+    sampleDepth = "0.5"
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, protocol_version, protocolVersion_rationale, ownerContact,
+    bibliographicCitation, basisOfRecord, materialSampleID, eventID, eventDate, eventTime,
+    decimalLatitude, decimalLongitude, recordedBy, sampleDepth, waterTemp, volumeFiltered,
+    dateFiltration, timeFiltration, controlType, LClabel, samplingStation, waterColumnDepth,
+    tide, depthWaterTemp, totalDNAconc, unitsDNAconc
+  )
+
+Musq2023 <- read_xlsx("MUSQ_SamplingMetadata_2023.xlsx")
+#View(Musq2023)
+
+
+# keep all rows from GOTeDNA_24_Metadata; add chosen cols from Musq2023
+GOTeDNA_24_Metadata <- GOTeDNA_24_Metadata %>%
+  mutate(samplingStation = str_trim(as.character(samplingStation))) %>%
+  left_join(
+    Musq2023 %>%
+      mutate(
+        # make numeric IDs text (no scientific notation, no trailing .0)
+        SampleID = str_trim(format(SampleID, trim = TRUE, scientific = FALSE))
+      ) %>%
+      select(SampleID, Station, Date),
+    by = c("samplingStation" = "SampleID")
+  )
+
+#View(GOTeDNA_24_Metadata)
+
+
+#Now that all of the metadata is combined, clean up and reorganize into proper GOTeDNA metadata format
+
+GOTeDNA24_MetadataFinal <- GOTeDNA_24_Metadata %>%
+
+  mutate(
+    materialSampleID = samplingStation,
+    samplingStation = Station,
+    eventDate = Date,
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, protocol_version, protocolVersion_rationale, ownerContact,
+    bibliographicCitation, basisOfRecord, materialSampleID, eventID, eventDate, eventTime,
+    decimalLatitude, decimalLongitude, recordedBy, sampleDepth, waterTemp, volumeFiltered,
+    dateFiltration, timeFiltration, controlType, LClabel, samplingStation, waterColumnDepth,
+    tide, depthWaterTemp, totalDNAconc, unitsDNAconc
+  )
+
+#View(GOTeDNA24_MetadataFinal)
+
+----
+GOTeDNA_15_Metadata <- Musquash2022_bottom %>%
+
+  mutate(
+
+    Project_ID = "Musquash MPA eDNA NB 2022",
+    GOTeDNA_ID = "15",
+    protocol_version = "1",
+    protocolVersion_rationale = "CEGA, NL",
+    ownerContact = "nick.jeffery@dfo-mpo.gc.ca",
+    basisOfRecord = "materialSample",
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    volumeFiltered = "1",
+    sampleDepth = waterColumnDepth
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, protocol_version, protocolVersion_rationale, ownerContact,
+    bibliographicCitation, basisOfRecord, materialSampleID, eventID, eventDate, eventTime,
+    decimalLatitude, decimalLongitude, recordedBy, sampleDepth, waterTemp, volumeFiltered,
+    dateFiltration, timeFiltration, controlType, LClabel, samplingStation, waterColumnDepth,
+    tide, depthWaterTemp, totalDNAconc, unitsDNAconc
+  )
+
+Musq2022 <- read.csv("MUSQ_SamplingMetadata_2022.csv")
+#View(Musq2022)
+
+# keep all rows from GOTeDNA_15_Metadata; add chosen cols from Musq2022
+
+GOTeDNA_15_Metadata <- GOTeDNA_15_Metadata %>%
+  left_join(
+    Musq2022 %>% select(collection_date, sample_name, sample_depth, water_depth),
+    by = c("materialSampleID" = "sample_name")
+  )
+
+#View(GOTeDNA_15_Metadata)
+
+#Now that all of the metadata is combined, clean up and reorganize into proper GOTeDNA metadata format
+
+GOTeDNA15_MetadataFinal <- GOTeDNA_15_Metadata %>%
+
+  mutate(
+    eventDate = collection_date,
+    sampleDepth = sample_depth,
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, protocol_version, protocolVersion_rationale, ownerContact,
+    bibliographicCitation, basisOfRecord, materialSampleID, eventID, eventDate, eventTime,
+    decimalLatitude, decimalLongitude, recordedBy, sampleDepth, waterTemp, volumeFiltered,
+    dateFiltration, timeFiltration, controlType, LClabel, samplingStation, waterColumnDepth,
+    tide, depthWaterTemp, totalDNAconc, unitsDNAconc
+  )
+
+#View(GOTeDNA15_MetadataFinal)
+
+
+-----
+GOTeDNA_20_Metadata <- Musquash2022_surface %>%
+
+  mutate(
+
+    Project_ID = "Musquash MPA eDNA NB 2022",
+    GOTeDNA_ID = "20",
+    protocol_version = "1",
+    protocolVersion_rationale = "CEGA, NL",
+    ownerContact = "nick.jeffery@dfo-mpo.gc.ca",
+    basisOfRecord = "materialSample",
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    volumeFiltered = "1",
+    sampleDepth = "0.5"
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, protocol_version, protocolVersion_rationale, ownerContact,
+    bibliographicCitation, basisOfRecord, materialSampleID, eventID, eventDate, eventTime,
+    decimalLatitude, decimalLongitude, recordedBy, sampleDepth, waterTemp, volumeFiltered,
+    dateFiltration, timeFiltration, controlType, LClabel, samplingStation, waterColumnDepth,
+    tide, depthWaterTemp, totalDNAconc, unitsDNAconc
+  )
+
+Musq2022 <- read.csv("MUSQ_SamplingMetadata_2022.csv")
+
+
+
+# keep all rows from GOTeDNA_20_Metadata; add chosen cols from Musq2022
+
+GOTeDNA_20_Metadata <- GOTeDNA_20_Metadata %>%
+  left_join(
+    Musq2022 %>% select(collection_date, sample_name, sample_depth, water_depth),
+    by = c("materialSampleID" = "sample_name")
+  )
+
+#View(GOTeDNA_20_Metadata)
+
+#Now that all of the metadata is combined, clean up and reorganize into proper GOTeDNA metadata format
+
+GOTeDNA20_MetadataFinal <- GOTeDNA_20_Metadata %>%
+
+  mutate(
+    eventDate = collection_date,
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, protocol_version, protocolVersion_rationale, ownerContact,
+    bibliographicCitation, basisOfRecord, materialSampleID, eventID, eventDate, eventTime,
+    decimalLatitude, decimalLongitude, recordedBy, sampleDepth, waterTemp, volumeFiltered,
+    dateFiltration, timeFiltration, controlType, LClabel, samplingStation, waterColumnDepth,
+    tide, depthWaterTemp, totalDNAconc, unitsDNAconc
+  )
+
+#View(GOTeDNA20_MetadataFinal)
+
+
+## Save Metadata files to excel
+
+#install.packages("writexl")
+writexl::write_xlsx(
+  GOTeDNA15_MetadataFinal,
+  "GOTeDNA-15_Sample-Metadata_12SMusquash2022Bottom_Final.xlsx"
+)
+
+writexl::write_xlsx(
+  GOTeDNA16_MetadataFinal,
+  "GOTeDNA-16_Sample-Metadata_12SMusquash2024_Final.xlsx"
+)
+
+writexl::write_xlsx(
+  GOTeDNA20_MetadataFinal,
+  "GOTeDNA-20_Sample-Metadata_12SMusquash2022Surface_Final.xlsx"
+)
+
+writexl::write_xlsx(
+  GOTeDNA24_MetadataFinal,
+  "GOTeDNA-24_Sample-Metadata_12SMusquash2023_Final.xlsx"
+)
+
+##COMPLETE
+
+#Musquash12S.R code below
+
+#Musquash 12S 2022-2024 (PhD student data)
+
+#2022 Dataset = GOTeDNA_ID-7
+#2023-2024 Dataset = GOTeDNA_ID-13
+
+setwd("~/GOTeDNA_DataPrep/Musquash")
+
+#Open packages and load libraries
+#install.packages("openxlsx")
+#install.packages("dplyr")
+#install.packages("tidyr")
+#install.packages("worrms")
+
+library(readxl)
+library(openxlsx)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(worrms)
+library(stringr)
+library(purrr)
+
+#Read in excel files
+Musq <- read_xlsx("Musquash12S_2022_2024.xlsx")
+Musqmeta <- read_xlsx("Musquash12S_2022_2024_metadata.xlsx")
+
+#View(Musq)
+#View(Musqmeta)
+
+#Clean up the species column to just show genus species
+Musq <- Musq %>%
+  mutate(Species = str_remove(
+    str_remove(str_split(Species, ";", simplify = TRUE)[, ncol(str_split(Species, ";", simplify = TRUE))], "^s__"),
+    "\\s*\\([^)]*\\)"
+  ))
+
+#View(Musq)
+
+#Create df with GOTeDNA columns and add rows for species names from bioinformatic output file (xlsx/csv)
+
+df_Musq12S <- data.frame(
+  Project_ID = character(length(Musq$Species)),
+  GOTeDNA_ID = character(length(Musq$Species)),
+  GOTeDNA_version = character(length(Musq$Species)),
+  basisOfRecord = character(length(Musq$Species)),
+  materialSampleID = character(length(Musq$Species)),
+  eventID = character(length(Musq$Species)),
+  recordedBy = character(length(Musq$Species)),
+  target_gene = character(length(Musq$Species)),
+  target_subfragment = character(length(Musq$Species)),
+  scientificName = Musq$Species,
+  taxonID = character(length(Musq$Species)),
+  kingdom = character(length(Musq$Species)),
+  phylum = character(length(Musq$Species)),
+  class = character(length(Musq$Species)),
+  order = character(length(Musq$Species)),
+  family = character(length(Musq$Species)),
+  genus = character(length(Musq$Species)),
+  occurrenceID = character(length(Musq$Species)),
+  organismQuantity = numeric(length(Musq$Species)),
+  organismQuantityType = character(length(Musq$Species)),
+  sampleSizeValue = character(length(Musq$Species)),
+  sampleSizeUnit = character(length(Musq$Species)),
+  samplingProtocol = character(length(Musq$Species)),
+  associatedSequences = character(length(Musq$Species)),
+  identificationRemarks = character(length(Musq$Species)),
+  stringsAsFactors = FALSE
+)
+
+
+#View dataframe
+#View(df_Musq12S)
+
+# Pivot from wide (samples as columns) to long (sample, value)
+# Linking bioinformatic output to GOTeDNA file format
+df_Musq12S <- Musq %>%
+  pivot_longer(
+    cols = -c(Species),   # keep Species fixed, everything else pivots
+    names_to = "materialSampleID",
+    values_to = "organismQuantity"
+  ) %>%
+  filter(
+         !grepl("_sp\\.", Species)     #remove genus_sp. names
+  ) %>%
+  mutate(
+    Project_ID = NA_character_,
+    GOTeDNA_ID = NA_character_,
+    GOTeDNA_version = "1",
+    basisOfRecord = "MaterialSample",
+    eventID = NA_character_,
+    recordedBy = NA_character_,
+    target_gene = "12S",
+    target_subfragment = "MiFish_12S",
+    scientificName = Species,  #species name
+    taxonID = NA_character_,
+    kingdom = NA_character_,
+    phylum = NA_character_,
+    class = NA_character_,
+    order = NA_character_,
+    family = NA_character_,
+    genus = NA_character_,
+    occurrenceID = NA_character_,
+    organismQuantityType = "DNA sequence reads",
+    sampleSizeValue = NA_character_,
+    sampleSizeUnit = NA_character_,
+    samplingProtocol = NA_character_,
+    associatedSequences = NA_character_,
+    identificationRemarks = NA_character_,
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID, eventID,
+    recordedBy, target_gene, target_subfragment, scientificName, taxonID,
+    kingdom, phylum, class, order, family, genus, occurrenceID,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,
+    samplingProtocol, associatedSequences, identificationRemarks
+  )
+
+# View dataframe
+#View(df_Musq12S)
+
+# 1) Build species → AphiaID lookup
+species_lookup <- tibble::tibble(
+  scientificName = unique(df_Musq12S$scientificName)
+) %>%
+  mutate(
+    taxonID = sapply(scientificName, function(s) {
+      id <- tryCatch(
+        wm_name2id(s, marine_only = FALSE),
+        error = function(e) NA
+      )
+      if (is.null(id) || length(id) == 0) NA_integer_ else as.integer(id[1])
+    })
+  )
+
+# 2) Join AphiaIDs and replace NA with empty string
+df_Musq12S <- df_Musq12S %>%
+  select(-any_of("taxonID")) %>%
+  left_join(species_lookup, by = "scientificName") %>%
+  mutate(
+    taxonID = if_else(
+      is.na(taxonID),
+      "",
+      as.character(taxonID)
+    )
+  )
+
+# Safe extractor for a given rank using the 'scientificname' column
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank","scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  tibble(
+    taxonID = id,
+    kingdom = .rank_val(classif, "Kingdom"),
+    phylum  = .rank_val(classif, "Phylum"),
+    class   = .rank_val(classif, "Class"),
+    order   = .rank_val(classif, "Order"),
+    family  = .rank_val(classif, "Family"),
+    genus   = .rank_val(classif, "Genus")
+  )
+}
+
+# Build a lookup for the unique AphiaIDs present in df
+unique_ids <- unique(df_Musq12S$taxonID)
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+# (Optional) see how many came back totally empty
+# sum(rowSums(is.na(taxonomy_lookup[,c("kingdom","phylum","class","order","family","genus")])) == 6)
+
+# Join back to your df
+df_Musq12S <- df_Musq12S %>%
+  select(-any_of(c("kingdom","phylum","class","order","family","genus"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID")
+
+#View df
+#View(df_Musq12S)
+
+#Fill out and edit other data columns with project details
+df_Musq12S <- df_Musq12S %>%
+  mutate(
+    # IDs
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    ),
+  )
+
+
+#View dataframe
+#View(df_Musq12S)
+
+#Add 'recordedBy' information
+
+df_Musq12S <- df_Musq12S %>%
+  mutate(
+    # Extract 3-digit number from IDs like "Sample-001"
+    sample_num = suppressWarnings(
+      as.integer(str_extract(materialSampleID, "(?<=^Sample-)[0-9]+"))
+    ),
+
+    recordedBy = case_when(
+      # 2022: IDs starting with M, 2, or 3
+      str_starts(materialSampleID, "M") |
+        str_starts(materialSampleID, "2") |
+        str_starts(materialSampleID, "3") ~
+        "Nick Jeffery | Ryan Stanley | Andrew Cooper",
+
+      # 2023: Sample-001 .. Sample-086
+      str_starts(materialSampleID, "Sample-") & !is.na(sample_num) &
+        sample_num >= 1 & sample_num <= 86 ~
+        "Nick Jeffery | Ryan Stanley | Andrew Cooper | Mark Wilcox | Rachel Horwitz",
+
+      # 2024: Sample-093 .. Sample-167
+      str_starts(materialSampleID, "Sample-") & !is.na(sample_num) &
+        sample_num >= 93 & sample_num <= 167 ~
+        "Nick Jeffery | Ryan Stanley | Andrew Cooper | Kaleb Zelman",
+
+      # otherwise keep whatever was there (or NA if none)
+      TRUE ~ recordedBy
+    )
+  ) %>%
+  select(-sample_num)
+
+
+#View DF
+#View(df_Musq12S)
+
+#Order the columns to be in GOTeDNA Order
+df_Musq12S <- df_Musq12S %>%
+  select(
+    GOTeDNA_ID,              # Protocol ID
+    GOTeDNA_version,         # protocol version
+    basisOfRecord,           # basis of record
+    materialSampleID,        # material sample
+    eventID,                 # event ID
+    recordedBy,              # recorded by
+    target_gene,             # target gene
+    target_subfragment,      # target subfragment
+    scientificName,          # scientific name
+    taxonID,                 # taxon ID
+    kingdom,                 # kingdom
+    phylum,                  # phylum
+    class,                   # class
+    order,                   # order
+    family,                  # family
+    genus,                   # genus
+    occurrenceID,            # occurrence ID
+    organismQuantity,        # organism quantity
+    organismQuantityType,    # organism quantity type
+    sampleSizeValue,         # sample size value
+    sampleSizeUnit,          # sample size unit
+    samplingProtocol,        # sampling protocol
+    associatedSequences,     # associated sequences
+    identificationRemarks    # identification remarks
+  )
+
+#View df
+#View(df_Musq12S)
+
+##Must take the bulk dataset and personalize to each GOTeDNA_ID
+
+#Fix sample names
+SampleMetabarcoding <- df_Musq12S %>%
+  mutate(materialSampleID = str_trim(as.character(materialSampleID))) %>%
+  left_join(
+    Musqmeta %>%
+      mutate(`File Name` = str_trim(as.character(`File Name`))) %>%
+      select(`File Name`, `Water Sample`),   # keep join key + desired columns
+    by = c("materialSampleID" = "File Name")
+  )
+
+#View(SampleMetabarcoding)
+
+#Clean up, reorganize and filter into proper GOTeDNA metadata format
+
+#GOTeDNA15
+
+GOTeDNA15_SampleMetabarcoding <- SampleMetabarcoding %>%
+
+  mutate(
+    GOTeDNA_ID = "15",
+    materialSampleID = `Water Sample`,
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    ),
+  ) %>%
+  select(
+    GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID, eventID,
+    recordedBy, target_gene, target_subfragment, scientificName, taxonID,
+    kingdom, phylum, class, order, family, genus, occurrenceID, organismQuantity,
+    organismQuantityType, sampleSizeValue, sampleSizeUnit, samplingProtocol,
+    associatedSequences, identificationRemarks,
+  )
+
+#View(GOTeDNA15_SampleMetabarcoding)
+
+GOTeDNA15_SampleMetabarcoding_filtered <- GOTeDNA15_SampleMetabarcoding %>%
+  semi_join(GOTeDNA15_MetadataFinal, by = "materialSampleID")
+
+#View(GOTeDNA15_SampleMetabarcoding_filtered)
+
+
+#GOTeDNA20
+
+GOTeDNA20_SampleMetabarcoding <- SampleMetabarcoding %>%
+
+  mutate(
+    GOTeDNA_ID = "20",
+    materialSampleID = `Water Sample`,
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    ),
+  ) %>%
+  select(
+    GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID, eventID,
+    recordedBy, target_gene, target_subfragment, scientificName, taxonID,
+    kingdom, phylum, class, order, family, genus, occurrenceID, organismQuantity,
+    organismQuantityType, sampleSizeValue, sampleSizeUnit, samplingProtocol,
+    associatedSequences, identificationRemarks,
+  )
+
+GOTeDNA20_SampleMetabarcoding_filtered <- GOTeDNA20_SampleMetabarcoding %>%
+  semi_join(GOTeDNA20_MetadataFinal, by = "materialSampleID")
+
+#View(GOTeDNA20_SampleMetabarcoding_filtered)
+
+
+#GOTeDNA16
+
+GOTeDNA16_SampleMetabarcoding <- SampleMetabarcoding %>%
+
+  mutate(
+    GOTeDNA_ID = "16",
+    materialSampleID = `Water Sample`,
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    ),
+  ) %>%
+  select(
+    GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID, eventID,
+    recordedBy, target_gene, target_subfragment, scientificName, taxonID,
+    kingdom, phylum, class, order, family, genus, occurrenceID, organismQuantity,
+    organismQuantityType, sampleSizeValue, sampleSizeUnit, samplingProtocol,
+    associatedSequences, identificationRemarks,
+  )
+
+GOTeDNA16_SampleMetabarcoding_filtered <- GOTeDNA16_SampleMetabarcoding %>%
+  semi_join(GOTeDNA16_MetadataFinal, by = "materialSampleID")
+
+#View(GOTeDNA16_SampleMetabarcoding_filtered)
+
+
+#GOTeDNA24
+
+GOTeDNA24_SampleMetabarcoding <- SampleMetabarcoding %>%
+
+  mutate(
+    GOTeDNA_ID = "24",
+    materialSampleID = `Water Sample`,
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    ),
+  ) %>%
+  select(
+    GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID, eventID,
+    recordedBy, target_gene, target_subfragment, scientificName, taxonID,
+    kingdom, phylum, class, order, family, genus, occurrenceID, organismQuantity,
+    organismQuantityType, sampleSizeValue, sampleSizeUnit, samplingProtocol,
+    associatedSequences, identificationRemarks,
+  )
+
+GOTeDNA24_SampleMetabarcoding_filtered <- GOTeDNA24_SampleMetabarcoding %>%
+  semi_join(GOTeDNA24_MetadataFinal, by = "materialSampleID")
+
+#View(GOTeDNA24_SampleMetabarcoding_filtered)
+
+##COMPLETE
+
+#Make into excel files and input into Google Sheets
+
+#install.packages("writexl")
+writexl::write_xlsx(
+  GOTeDNA15_SampleMetabarcoding_filtered,
+  "GOTeDNA-15_Sample-Metabarcoding_12SMusquash2022Bottom_Final_absentvalues.xlsx"
+)
+
+writexl::write_xlsx(
+  GOTeDNA16_SampleMetabarcoding_filtered,
+  "GOTeDNA-16_Sample-Metabarcoding_12SMusquash2024_Final_absentvalues.xlsx"
+)
+
+writexl::write_xlsx(
+  GOTeDNA20_SampleMetabarcoding_filtered,
+  "GOTeDNA-20_Sample-Metabarcoding_12SMusquash2022Surface_Final_absentvalues.xlsx"
+)
+
+writexl::write_xlsx(
+  GOTeDNA24_SampleMetabarcoding_filtered,
+  "GOTeDNA-24_Sample-Metabarcoding_12SMusquash2023_Final_absentvalues.xlsx"
+)
+
+
