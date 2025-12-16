@@ -226,7 +226,7 @@ GOTeDNA16_MetadataFinal <- GOTeDNA_16_Metadata %>%
 #View(GOTeDNA16_MetadataFinal)
 
 
-----
+
 GOTeDNA_24_Metadata <- Musquash2023 %>%
 
   mutate(
@@ -290,7 +290,7 @@ GOTeDNA24_MetadataFinal <- GOTeDNA_24_Metadata %>%
 
 #View(GOTeDNA24_MetadataFinal)
 
-----
+
 GOTeDNA_15_Metadata <- Musquash2022_bottom %>%
 
   mutate(
@@ -347,7 +347,7 @@ GOTeDNA15_MetadataFinal <- GOTeDNA_15_Metadata %>%
 #View(GOTeDNA15_MetadataFinal)
 
 
------
+
 GOTeDNA_20_Metadata <- Musquash2022_surface %>%
 
   mutate(
@@ -524,6 +524,11 @@ df_Musq12S <- Musq %>%
     recordedBy = NA_character_,
     target_gene = "12S",
     target_subfragment = "MiFish_12S",
+    Species = case_when(
+      Species == "Brevoortia patronus OR Brevoortia tyrannus" ~
+        "Brevoortia tyrannus",
+      TRUE ~ Species
+    ),
     scientificName = Species,  #species name
     taxonID = NA_character_,
     kingdom = NA_character_,
@@ -866,3 +871,4 @@ writexl::write_xlsx(
   "GOTeDNA-24_Sample-Metabarcoding_12SMusquash2023_Final_absentvalues.xlsx"
 )
 
+#Last updated on 12/16/2025 - use excel files with that date if the name has been reused
