@@ -157,11 +157,6 @@ leaflet() %>%
 
 #--------------------------------------------------------------------------------------------------------------------------------
 
-setwd("C:/Users/HEADK/Desktop/OBIS_prep")
-
-SABGULFUN_24_COI <- read.csv("OBIS_MCT_SABGULFUN2024_COI_occurrence.csv")
-SABGULFUN_24_12S <- read.csv("OBIS_MCT_SABGULFUN2024_12S_occurrence.csv")
-
 #Combine all polygons into one sf object
 
 # Add a common name/type to each polygon set
@@ -201,31 +196,56 @@ all_polys <- st_as_sf(all_polys)
 
 all_polys
 
+#-----------------------------------------------------------------------------
+
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+SABGULFUN_24_COI <- read.csv("OBIS_MCT_SABGULFUN2024_COI_occurrence.csv")
+SABGULFUN_24_12S <- read.csv("OBIS_MCT_SABGULFUN2024_12S_occurrence.csv")
+
+MUSQ16_12S <- read.csv("OBIS_MCT_Musq16_occurrence_FORMAP_notcomplete.csv")
+MUSQ20_12S <- read.csv("OBIS_MCT_Musq20_occurrence_FORMAP_notcomplete.csv")
+MUSQ24_12S <- read.csv("OBIS_MCT_Musq24_occurrence_FORMAP_notcomplete.csv")
+
+#Make sure columns are in the same integer/character format
+fix_ids <- function(df) {
+  df %>%
+    mutate(
+      materialSampleID = as.character(materialSampleID)
+    )
+}
+
+ALL_12S <- dplyr::bind_rows(
+  fix_ids(SABGULFUN_24_12S) %>% dplyr::mutate(source_file = "SABGULFUN_24_12S"),
+  fix_ids(MUSQ16_12S)       %>% dplyr::mutate(source_file = "MUSQ16_12S"),
+  fix_ids(MUSQ20_12S)       %>% dplyr::mutate(source_file = "MUSQ20_12S"),
+  fix_ids(MUSQ24_12S)       %>% dplyr::mutate(source_file = "MUSQ24_12S")
+)
+
+
+#############################################################
 #Turn species data into sf points  for the spatial join
 
 species_sf_COI <- SABGULFUN_24_COI %>%
-  filter(
-    !is.na(decimalLatitude),
-    !is.na(decimalLongitude)
-  ) %>%
-  # keep only present records if that’s what you want
-  filter(occurrenceStatus == "present") %>%
-  st_as_sf(
-    coords = c("decimalLongitude", "decimalLatitude"),
-    crs = 4326
-  )
+  filter(!is.na(decimalLatitude), !is.na(decimalLongitude),
+         occurrenceStatus == "present") %>%
+  st_as_sf(coords = c("decimalLongitude", "decimalLatitude"), crs = 4326) %>%
+  mutate(marker = "COI", source_file = "SABGULFUN_24_COI")
 
-species_sf_12S <- SABGULFUN_24_12S %>%
-  filter(
-    !is.na(decimalLatitude),
-    !is.na(decimalLongitude)
+species_sf_12S <- ALL_12S %>%
+  filter(!is.na(decimalLatitude), !is.na(decimalLongitude),
+         occurrenceStatus == "present") %>%
+  st_as_sf(coords = c("decimalLongitude", "decimalLatitude"), crs = 4326) %>%
+  mutate(marker = "12S")
+
+
+sampling_pts <- bind_rows(species_sf_12S, species_sf_COI) %>%
+  mutate(
+    year        = if ("year" %in% names(.)) year else NA,
+    source_file = if ("source_file" %in% names(.)) source_file else NA
   ) %>%
-  # keep only present records if that’s what you want
-  filter(occurrenceStatus == "present") %>%
-  st_as_sf(
-    coords = c("decimalLongitude", "decimalLatitude"),
-    crs = 4326
-  )
+  distinct(marker, year, source_file, materialSampleID, geometry, .keep_all = TRUE)
+
 
 #Assign each record to a polygon (spatial join)
 species_in_polys_COI <- st_join(
@@ -241,6 +261,7 @@ species_in_polys_12S <- st_join(
   join = st_within,
   left = FALSE   # drop species points not in any polygon
 )
+
 
 species_in_polys_COI %>%
   st_drop_geometry() %>%
@@ -392,7 +413,7 @@ summary_report_with_species_12S <- summary_report_12S %>%
 #Turn occurrences into sf points
 
 # Starting from your original occurrence dataframe
-species_sf_12S <- SABGULFUN_24_12S %>%
+species_sf_12S <- ALL_12S %>%
   filter(
     !is.na(decimalLatitude),
     !is.na(decimalLongitude),
@@ -421,7 +442,7 @@ species_sf_COI <- SABGULFUN_24_COI %>%
 
 grid <- st_make_grid(
   all_polys,
-  cellsize = 0.1,           # tweak this: smaller = finer grid, more cells
+  cellsize = 0.03,           # tweak this: smaller = finer grid, more cells
   square   = TRUE
 ) %>%
   st_as_sf() %>%
@@ -443,6 +464,7 @@ grid_with_pts_12S <- st_join(
   join = st_intersects,
   left = TRUE
 )
+
 
 # richness per cell = number of unique species in that cell
 richness_grid_COI <- grid_with_pts_COI %>%
@@ -715,112 +737,6 @@ library(wesanderson)
 wes_cont <- function(name, n = 100) {
   colorRampPalette(wes_palette(name, type = "continuous"))(n)
 }
-
-pal_zissou   <- wes_cont("Zissou1",   100)
-pal_moon2    <- wes_cont("Moonrise2", 100)
-pal_rushmore <- wes_cont("Rushmore1", 100)
-
-#Play around with colours here
-
-# leaflet-compatible numeric palettes
-pal_all <- colorNumeric(
-  palette  = pal_zissou,
-  domain   = richness_grid_all_poly$n_species_total,
-  na.color = "transparent"
-)
-
-pal_12S <- colorNumeric(
-  palette  = pal_moon1,
-  domain   = richness_grid_in_poly_12S_poly$n_species,
-  na.color = "transparent"
-)
-
-pal_COI <- colorNumeric(
-  palette  = pal_rushmore,
-  domain   = richness_grid_in_poly_COI_poly$n_species,
-  na.color = "transparent"
-)
-
-leaflet() %>%
-  addProviderTiles("Esri.OceanBasemap") %>%
-
-  # ---- Total richness (12S + COI) ----
-addPolygons(
-  data        = richness_grid_all_poly,
-  group       = "Total richness (12S + COI)",
-  fillColor   = ~pal_all(n_species_total),
-  fillOpacity = 0.8,
-  color       = NA,
-  label       = ~paste("Total richness:", n_species_total)
-) %>%
-
-  # ---- 12S richness ----
-addPolygons(
-  data        = richness_grid_in_poly_12S_poly,
-  group       = "12S richness",
-  fillColor   = ~pal_12S(n_species),
-  fillOpacity = 0.8,
-  color       = NA,
-  smoothFactor = 0.2,
-  label       = ~paste("12S richness:", n_species)
-) %>%
-
-  # ---- COI richness ----
-addPolygons(
-  data        = richness_grid_in_poly_COI_poly,
-  group       = "COI richness",
-  fillColor   = ~pal_COI(n_species),
-  fillOpacity = 0.8,
-  color       = NA,
-  smoothFactor = 0.2,
-  label       = ~paste("COI richness:", n_species)
-) %>%
-
-  # ---- MPA / AOI outlines ----
-addPolygons(
-  data        = all_polys_poly,
-  group       = "MPA/AOI outlines",
-  fillOpacity = 0,
-  color       = "black",
-  weight      = 2,
-  popup       = ~site_name
-) %>%
-
-  # ---- Legends ----
-addLegend(
-  position = "bottomright",
-  pal      = pal_all,
-  values   = richness_grid_all_poly$n_species_total,
-  title    = "Total richness\n(12S + COI)",
-  opacity  = 1
-) %>%
-  addLegend(
-    position = "bottomleft",
-    pal      = pal_12S,
-    values   = richness_grid_in_poly_12S_poly$n_species,
-    title    = "12S richness",
-    opacity  = 1
-  ) %>%
-  addLegend(
-    position = "topright",
-    pal      = pal_COI,
-    values   = richness_grid_in_poly_COI_poly$n_species,
-    title    = "COI richness",
-    opacity  = 1
-  ) %>%
-
-  # ---- Layer control ----
-addLayersControl(
-  overlayGroups = c(
-    "Total richness (12S + COI)",
-    "12S richness",
-    "COI richness",
-    "MPA/AOI outlines"
-  ),
-  options = layersControlOptions(collapsed = FALSE)
-)
-
-
 
 
 
@@ -1096,7 +1012,22 @@ addPolygons(
   color       = NA,
   label       = ~paste("Total richness:", n_species_total)
 ) %>%
-
+  # ---- Sampling points ----
+addCircleMarkers(
+  data        = sampling_pts,
+  group       = "Sampling points",
+  radius      = 2,
+  stroke      = TRUE,
+  weight      = 1,
+  opacity     = 1,
+  fillOpacity = 0.8,
+  label       = ~paste0(
+    "Marker: ", marker,
+    ifelse(is.na(year), "", paste0(" | Year: ", year)),
+    ifelse(is.na(source_file), "", paste0(" | File: ", source_file)),
+    ifelse(is.na(materialSampleID), "", paste0(" | Sample: ", materialSampleID))
+  )
+) %>%
   # ---- MPA / AOI outlines ----
 addPolygons(
   data        = all_polys_poly,
@@ -1123,6 +1054,7 @@ addLayersControl(
     "Total richness (12S + COI)",
     "12S richness",
     "COI richness",
+    "Sampling points",
     "MPA/AOI outlines"
   ),
   options = layersControlOptions(collapsed = FALSE)
@@ -1147,7 +1079,7 @@ addLayersControl(
 
 #Create Species summary dataframe based on polygon location
 
-species_summ <- SABGULFUN_24_12S %>%
+species_summ <- ALL_12S %>%
   select(
     decimalLatitude,
     decimalLongitude,
@@ -1173,6 +1105,11 @@ species_summ <- SABGULFUN_24_12S %>%
 ##Questions
 #Do I want the details of the reads in the columns?
 ----------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
 
 
 
