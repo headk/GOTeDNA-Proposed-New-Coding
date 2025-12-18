@@ -190,6 +190,16 @@ all_polys <- st_as_sf(all_polys)
 
 all_polys
 
+# 1) clean polygons without losing pieces
+all_polys_click <- all_polys %>%
+  st_make_valid() %>%
+  st_collection_extract("POLYGON") %>%
+  filter(!st_is_empty(.)) %>%
+  group_by(site_type, site_name) %>%
+  summarise(geometry = st_union(st_geometry(.)), .groups = "drop") %>%
+  st_as_sf()
+
+
 #-----------------------------------------------------------------------------
 
 setwd("C:/Users/HEADK/Desktop/OBIS_prep")
@@ -255,6 +265,15 @@ species_in_polys_12S <- st_join(
   join = st_within,
   left = FALSE   # drop species points not in any polygon
 )
+
+poly_species_total <- bind_rows(
+  species_in_polys_12S %>% st_drop_geometry() %>% transmute(site_name, site_type, scientificName),
+  species_in_polys_COI %>% st_drop_geometry() %>% transmute(site_name, site_type, scientificName)
+) %>%
+  filter(!is.na(scientificName), scientificName != "") %>%
+  distinct(site_name, site_type, scientificName) %>%
+  group_by(site_name, site_type) %>%
+  summarise(species = list(sort(unique(scientificName))), .groups = "drop")
 
 
 species_in_polys_COI %>%
@@ -613,7 +632,7 @@ leaflet() %>%
 
   # polygon outlines (MPAs + AOIs)
   addPolygons(
-    data        = all_polys_poly,  # or all_polys if that was already fine
+    data        = all_polys,  # or all_polys if that was already fine
     group       = "MPA/AOI outlines",
     fillOpacity = 0,
     color       = "black",
@@ -796,7 +815,7 @@ leaflet() %>%
 
   # polygon outlines (MPAs + AOIs)
   addPolygons(
-    data        = all_polys_poly,  # or all_polys if that was already fine
+    data        = all_polys,  # or all_polys if that was already fine
     group       = "MPA/AOI outlines",
     fillOpacity = 0,
     color       = "black",
@@ -877,7 +896,7 @@ leaflet() %>%
 
   # polygon outlines (MPAs + AOIs)
   addPolygons(
-    data        = all_polys_poly,  # or all_polys if that was already fine
+    data        = all_polys,  # or all_polys if that was already fine
     group       = "MPA/AOI outlines",
     fillOpacity = 0,
     color       = "black",
@@ -958,6 +977,18 @@ pal_rich <- colorNumeric(
 
 
 ###########################################
+
+# A) zone outlines (keep every zone piece)
+all_polys_zones <- all_polys %>%
+  st_make_valid() %>%
+  st_collection_extract("POLYGON") %>%
+  filter(!st_is_empty(.)) %>%
+  st_as_sf()
+
+# B) clickable dissolved outlines (one feature per site_name/site_type)
+all_polys_click <- all_polys_zones %>%
+  group_by(site_type, site_name) %>%
+  summarise(do_union = TRUE, .groups = "drop")
 
 library(shiny)
 library(leaflet)
@@ -1081,13 +1112,26 @@ server <- function(input, output, session){
         ifelse(is.na(materialSampleID), "", paste0(" | Sample: ", materialSampleID))
       )
     ) %>%
-      # outlines
+      # 1) show internal zone boundaries
       addPolygons(
-        data        = all_polys_poly,
-        group       = "MPA/AOI outlines",
+        data        = all_polys_zones,
+        group       = "MPA/AOI zone boundaries",
         fillOpacity = 0,
         color       = "black",
+        weight      = 1,
+        opacity     = 0.8,
+        options     = pathOptions(clickable = FALSE)  # don't steal clicks
+      ) %>%
+
+      # 2) clickable whole-site boundary (captures clicks)
+      addPolygons(
+        data        = all_polys_click,
+        group       = "MPA/AOI richness",
+        layerId     = ~paste(site_type, site_name, sep="||"),
+        fillOpacity = 0.01,   # must be >0 to be reliably clickable
+        color       = "black",
         weight      = 2,
+        opacity     = 1,
         popup       = ~site_name
       ) %>%
 
@@ -1096,7 +1140,7 @@ server <- function(input, output, session){
         position = "bottomright",
         pal      = pal_rich,
         values   = richness_grid_all_poly$n_species_total,     #rich_domain,   # <- use the numeric domain you already made
-        title    = "Species richness",
+        title    = "Species richness from eDNA",
         opacity  = 1
       ) %>%
       addLayersControl(
@@ -1105,8 +1149,9 @@ server <- function(input, output, session){
           "Total richness (12S + COI)",
           "12S richness",
           "COI richness",
-          "Sampling points",
-          "MPA/AOI outlines"
+          "MPA/AOI richness",
+          "MPA/AOI zone boundaries",
+          "Sampling points"
         ),
         options = layersControlOptions(collapsed = FALSE)
       )
@@ -1141,7 +1186,39 @@ server <- function(input, output, session){
 
   # species list panel (shows Total + 12S + COI)
   output$species_panel <- renderUI({
-    cid <- clicked_cell()
+    click <- input$map_shape_click
+    if (is.null(click) || is.null(click$id)) {
+      return(em("Click a grid cell or an MPA/AOI outline."))
+    }
+
+    # ---- A) polygon click (ids like "MPA||Gully Marine Protected Area") ----
+    if (grepl("\\|\\|", click$id)) {
+      parts <- strsplit(click$id, "\\|\\|")[[1]]
+      p_type <- parts[1]
+      p_name <- parts[2]
+
+      row <- poly_species_total %>%
+        filter(site_type == p_type, site_name == p_name)
+
+      spp <- if (nrow(row) == 0) character(0) else row$species[[1]]
+
+      if (length(spp) == 0) return(em("No species records in this MPA/AOI polygon."))
+
+      return(tagList(
+        strong(paste0(p_type, ": ", p_name)),
+        tags$br(),
+        paste("Total unique species:", length(spp)),
+        tags$hr(),
+        tags$div(
+          style = "max-height: 350px; overflow-y: auto; padding-left: 10px;",
+          tags$ul(lapply(spp, tags$li))
+        )
+      ))
+    }
+
+    # ---- B) grid click (numeric cell_id) ----
+    cid <- suppressWarnings(as.integer(click$id))
+    if (is.na(cid)) return(em("Click a grid cell or an MPA/AOI outline."))
 
     spp_total <- cell_species_all %>%
       filter(cell_id == cid) %>%
@@ -1151,11 +1228,13 @@ server <- function(input, output, session){
 
     spp_12S <- cell_species_12S %>%
       filter(cell_id == cid) %>%
+      distinct(scientificName) %>%
       arrange(scientificName) %>%
       pull(scientificName)
 
     spp_COI <- cell_species_COI %>%
       filter(cell_id == cid) %>%
+      distinct(scientificName) %>%
       arrange(scientificName) %>%
       pull(scientificName)
 
@@ -1173,15 +1252,16 @@ server <- function(input, output, session){
                    make_list(spp_total)
       ),
       tags$details(
-        tags$summary(strong(paste0("12S species (", length(unique(spp_12S)), ")"))),
-        make_list(unique(spp_12S))
+        tags$summary(strong(paste0("12S species (", length(spp_12S), ")"))),
+        make_list(spp_12S)
       ),
       tags$details(
-        tags$summary(strong(paste0("COI species (", length(unique(spp_COI)), ")"))),
-        make_list(unique(spp_COI))
+        tags$summary(strong(paste0("COI species (", length(spp_COI), ")"))),
+        make_list(spp_COI)
       )
     )
   })
+
 
   # highlight selected cell (outline on top)
   observeEvent(input$map_shape_click, {
@@ -1203,3 +1283,5 @@ server <- function(input, output, session){
 }
 
 shinyApp(ui, server)
+######################################################
+
