@@ -9,6 +9,8 @@ library(worrms)
 library(openxlsx)
 library(lubridate)
 library(tidyr)
+library(readxl)
+library(readr)
 
 ##Obtain filled GOTeDNA template and link data to OBIS specific column headers
 
@@ -16,21 +18,6 @@ setwd("C:/Users/HEADK/Desktop/AIS_Halifax__ForLuke")
 
 
 #Start by formatting data into the "Sample_Metabarcoding data" sheet from the GOTeDNA template (can use this to format into OBIS template)
-
-#Open packages and load libraries
-#install.packages("openxlsx")
-#install.packages("dplyr")
-#install.packages("tidyr")
-#install.packages("worrms")
-
-library(readxl)
-library(openxlsx)
-library(readr)
-library(dplyr)
-library(tidyr)
-library(worrms)
-library(stringr)
-library(purrr)
 
 #Read in excel files
 barq <- read_csv("Barque Pipeline - Halifax 2023 COI1 Species table.xlsx - Removed Multi-Hits.csv")
@@ -55,19 +42,19 @@ erin <- erin %>%
       str_replace_all("\u00A0", " ") %>%                 # NBSP -> normal space
       str_squish() %>%
       str_replace_all("_", " ") %>%
-      
+
       # remove many bracket types, not just [ ]
       str_replace_all("[\\[\\]［］【】〔〕〈〉《》\\(\\){}]", "") %>%
-      
+
       # remove sp. / cf. / aff. (optional)
       str_remove_all("\\b(sp|cf|aff)\\.?\\b") %>%
       str_squish() %>%
-      
+
       # if it looks like "Genus 188466 ..." keep genus only
       if_else(str_detect(., "^[A-Z][a-z]+\\s+\\d+\\b"),
               str_extract(., "^[A-Z][a-z]+"),
               .) %>%
-      
+
       # remove ANY trailing tokens that contain digits (kills "CMC01", "604195", etc.)
       str_remove("\\s+(\\S*\\d\\S*)(\\s+\\S*\\d\\S*)*$") %>%
       str_squish()
@@ -111,13 +98,27 @@ df_barq <- data.frame(
 #View dataframe
 #View(df_barq12S)
 
-# Pivot from wide (samples as columns) to long (sample, value)
-# Linking bioinformatic output to GOTeDNA file format
-df_barq <- barq %>%
+# 1. Extract sample-level totals (bottom row)
+sample_totals <- barq %>%
+  filter(Group == "Total") %>%              # adjust if needed
+  select(-Group, -Genus, -Species, -TaxonName, -Total) %>%
   pivot_longer(
-    cols = -c(TaxonName, Group, Genus, Species, Total),   # keep TaxonName fixed, everything else pivots
+    cols = everything(),
+    names_to = "materialSampleID",
+    values_to = "sampleSizeValue"
+  )
+
+
+barq_species <- barq %>%
+  filter(Group != "Total")
+
+df_barq <- barq_species %>%
+  pivot_longer(
+    cols = -c(TaxonName, Group, Genus, Species, Total),
     names_to = "materialSampleID",
     values_to = "organismQuantity"
+  ) %>%
+  left_join(sample_totals, by = "materialSampleID"
   ) %>%
   mutate(
     Project_ID = NA_character_,
@@ -128,7 +129,7 @@ df_barq <- barq %>%
     recordedBy = NA_character_,
     target_gene = "COI",
     target_subfragment = NA_character_,
-    scientificName = TaxonName,  #TaxonName name
+    scientificName = TaxonName,
     taxonID = NA_character_,
     kingdom = NA_character_,
     phylum = NA_character_,
@@ -138,19 +139,21 @@ df_barq <- barq %>%
     genus = NA_character_,
     occurrenceID = NA_character_,
     organismQuantityType = "DNA sequence reads",
-    sampleSizeValue = Total,
     sampleSizeUnit = "DNA sequence reads",
     samplingProtocol = NA_character_,
     associatedSequences = NA_character_,
     identificationRemarks = NA_character_
   ) %>%
   select(
-    Project_ID, GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID, eventID,
-    recordedBy, target_gene, target_subfragment, scientificName, taxonID,
+    Project_ID, GOTeDNA_ID, GOTeDNA_version, basisOfRecord,
+    materialSampleID, eventID, recordedBy,
+    target_gene, target_subfragment, scientificName, taxonID,
     kingdom, phylum, class, order, family, genus, occurrenceID,
-    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,
+    organismQuantity, organismQuantityType,
+    sampleSizeValue, sampleSizeUnit,
     samplingProtocol, associatedSequences, identificationRemarks
   )
+
 
 # View dataframe
 #View(df_barq12S)
@@ -205,9 +208,9 @@ get_taxonomy_for_id <- function(id) {
       order = NA_character_, family = NA_character_, genus = NA_character_
     ))
   }
-  
+
   classif <- tryCatch(wm_classification(as.integer(id)), error = function(e) NULL)
-  
+
   tibble(
     taxonID = as.character(id),
     kingdom = .rank_val(classif, "Kingdom"),
@@ -281,7 +284,7 @@ df_barq <- df_barq %>%
   )
 
 #View df
-#View(df_barq12S)
+#View(df_barq)
 
 ##Do the same for erin's pipeline file -----------------------------------------------------------------
 
@@ -320,6 +323,7 @@ df_erin <- data.frame(
 #View dataframe
 #View(df_erin)
 
+
 # Pivot from wide (samples as columns) to long (sample, value)
 # Linking bioinformatic output to GOTeDNA file format
 df_erin <- erin %>%
@@ -347,7 +351,7 @@ df_erin <- erin %>%
     genus = NA_character_,
     occurrenceID = NA_character_,
     organismQuantityType = "DNA sequence reads",
-    sampleSizeValue = Total,
+    sampleSizeValue = NA_character_,
     sampleSizeUnit = "DNA sequence reads",
     samplingProtocol = NA_character_,
     associatedSequences = NA_character_,
@@ -360,6 +364,18 @@ df_erin <- erin %>%
     organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,
     samplingProtocol, associatedSequences, identificationRemarks
   )
+
+
+sample_totals <- df_erin %>%
+  group_by(materialSampleID) %>%
+  summarise(
+    sampleSizeValue = sum(organismQuantity, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+df_erin <- df_erin %>%
+  left_join(sample_totals, by = "materialSampleID") %>%
+  mutate(sampleSizeValue = sampleSizeValue.y)
 
 # View dataframe
 #View(df_erin)
@@ -414,9 +430,9 @@ get_taxonomy_for_id <- function(id) {
       order = NA_character_, family = NA_character_, genus = NA_character_
     ))
   }
-  
+
   classif <- tryCatch(wm_classification(as.integer(id)), error = function(e) NULL)
-  
+
   tibble(
     taxonID = as.character(id),
     kingdom = .rank_val(classif, "Kingdom"),
@@ -507,5 +523,7 @@ writexl::write_xlsx(
   df_erin,
   "Erin_Halifax2023_COI_GOTeDNA_SampleTemplateFormat.xlsx"
 )
+
+
 
 
