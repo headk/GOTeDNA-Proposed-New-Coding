@@ -1,0 +1,511 @@
+#Data organization for Halifax 2023 for Luke - ignore metadata
+
+#Install packages and Load libraries
+library(dplyr)
+library(stringr)
+library(purrr)
+library(tibble)
+library(worrms)
+library(openxlsx)
+library(lubridate)
+library(tidyr)
+
+##Obtain filled GOTeDNA template and link data to OBIS specific column headers
+
+setwd("C:/Users/HEADK/Desktop/AIS_Halifax__ForLuke")
+
+
+#Start by formatting data into the "Sample_Metabarcoding data" sheet from the GOTeDNA template (can use this to format into OBIS template)
+
+#Open packages and load libraries
+#install.packages("openxlsx")
+#install.packages("dplyr")
+#install.packages("tidyr")
+#install.packages("worrms")
+
+library(readxl)
+library(openxlsx)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(worrms)
+library(stringr)
+library(purrr)
+
+#Read in excel files
+barq <- read_csv("Barque Pipeline - Halifax 2023 COI1 Species table.xlsx - Removed Multi-Hits.csv")
+erin <- read_csv("Erin_Pipeline_Halifax2023_species table.xlsx - formatted.csv")
+
+#View(barq)
+#View(erin)
+
+
+#Clean up the species column to just show genus species
+barq <- barq %>%
+  mutate(
+    TaxonName = str_split(TaxonName, "_") |>
+      purrr::map_chr(~ paste(tail(.x, 2), collapse = " "))
+  )
+
+
+erin <- erin %>%
+  mutate(
+    Species = Species %>%
+      as.character() %>%
+      str_replace_all("\u00A0", " ") %>%                 # NBSP -> normal space
+      str_squish() %>%
+      str_replace_all("_", " ") %>%
+      
+      # remove many bracket types, not just [ ]
+      str_replace_all("[\\[\\]［］【】〔〕〈〉《》\\(\\){}]", "") %>%
+      
+      # remove sp. / cf. / aff. (optional)
+      str_remove_all("\\b(sp|cf|aff)\\.?\\b") %>%
+      str_squish() %>%
+      
+      # if it looks like "Genus 188466 ..." keep genus only
+      if_else(str_detect(., "^[A-Z][a-z]+\\s+\\d+\\b"),
+              str_extract(., "^[A-Z][a-z]+"),
+              .) %>%
+      
+      # remove ANY trailing tokens that contain digits (kills "CMC01", "604195", etc.)
+      str_remove("\\s+(\\S*\\d\\S*)(\\s+\\S*\\d\\S*)*$") %>%
+      str_squish()
+  )
+
+
+#View(barq)
+
+#Create df with GOTeDNA columns and add rows for species names from bioinformatic output file (xlsx/csv)
+
+df_barq <- data.frame(
+  Project_ID = character(length(barq$TaxonName)),
+  GOTeDNA_ID = character(length(barq$TaxonName)),
+  GOTeDNA_version = character(length(barq$TaxonName)),
+  basisOfRecord = character(length(barq$TaxonName)),
+  materialSampleID = character(length(barq$TaxonName)),
+  eventID = character(length(barq$TaxonName)),
+  recordedBy = character(length(barq$TaxonName)),
+  target_gene = character(length(barq$TaxonName)),
+  target_subfragment = character(length(barq$TaxonName)),
+  scientificName = barq$TaxonName,
+  taxonID = character(length(barq$TaxonName)),
+  kingdom = character(length(barq$TaxonName)),
+  phylum = character(length(barq$TaxonName)),
+  class = character(length(barq$TaxonName)),
+  order = character(length(barq$TaxonName)),
+  family = character(length(barq$TaxonName)),
+  genus = character(length(barq$TaxonName)),
+  occurrenceID = character(length(barq$TaxonName)),
+  organismQuantity = numeric(length(barq$TaxonName)),
+  organismQuantityType = character(length(barq$TaxonName)),
+  sampleSizeValue = character(length(barq$TaxonName)),
+  sampleSizeUnit = character(length(barq$TaxonName)),
+  samplingProtocol = character(length(barq$TaxonName)),
+  associatedSequences = character(length(barq$TaxonName)),
+  identificationRemarks = character(length(barq$TaxonName)),
+  stringsAsFactors = FALSE
+)
+
+
+#View dataframe
+#View(df_barq12S)
+
+# Pivot from wide (samples as columns) to long (sample, value)
+# Linking bioinformatic output to GOTeDNA file format
+df_barq <- barq %>%
+  pivot_longer(
+    cols = -c(TaxonName, Group, Genus, Species, Total),   # keep TaxonName fixed, everything else pivots
+    names_to = "materialSampleID",
+    values_to = "organismQuantity"
+  ) %>%
+  mutate(
+    Project_ID = NA_character_,
+    GOTeDNA_ID = NA_character_,
+    GOTeDNA_version = NA_character_,
+    basisOfRecord = "MaterialSample",
+    eventID = NA_character_,
+    recordedBy = NA_character_,
+    target_gene = "COI",
+    target_subfragment = NA_character_,
+    scientificName = TaxonName,  #TaxonName name
+    taxonID = NA_character_,
+    kingdom = NA_character_,
+    phylum = NA_character_,
+    class = NA_character_,
+    order = NA_character_,
+    family = NA_character_,
+    genus = NA_character_,
+    occurrenceID = NA_character_,
+    organismQuantityType = "DNA sequence reads",
+    sampleSizeValue = Total,
+    sampleSizeUnit = "DNA sequence reads",
+    samplingProtocol = NA_character_,
+    associatedSequences = NA_character_,
+    identificationRemarks = NA_character_
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID, eventID,
+    recordedBy, target_gene, target_subfragment, scientificName, taxonID,
+    kingdom, phylum, class, order, family, genus, occurrenceID,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,
+    samplingProtocol, associatedSequences, identificationRemarks
+  )
+
+# View dataframe
+#View(df_barq12S)
+
+# 1) Build TaxonName → AphiaID lookup
+TaxonName_lookup <- tibble::tibble(
+  scientificName = unique(df_barq$scientificName)
+) %>%
+  mutate(
+    taxonID = sapply(scientificName, function(s) {
+      id <- tryCatch(
+        wm_name2id(s, marine_only = FALSE),
+        error = function(e) NA
+      )
+      if (is.null(id) || length(id) == 0) NA_integer_ else as.integer(id[1])
+    })
+  )
+
+# 2) Join AphiaIDs and replace NA with empty string
+df_barq <- df_barq %>%
+  select(-any_of("taxonID")) %>%
+  left_join(TaxonName_lookup, by = "scientificName") %>%
+  mutate(
+    taxonID = if_else(
+      is.na(taxonID),
+      "",
+      as.character(taxonID)
+    )
+  )
+
+# Safe extractor for a given rank using the 'scientificname' column
+library(dplyr)
+library(purrr)
+library(stringr)
+library(tibble)
+library(worrms)
+
+# Safe extractor
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank","scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  # guard against blanks / non-numeric ids
+  if (is.na(id) || id == "" || !str_detect(id, "^[0-9]+$")) {
+    return(tibble(
+      taxonID = as.character(id),
+      kingdom = NA_character_, phylum = NA_character_, class = NA_character_,
+      order = NA_character_, family = NA_character_, genus = NA_character_
+    ))
+  }
+  
+  classif <- tryCatch(wm_classification(as.integer(id)), error = function(e) NULL)
+  
+  tibble(
+    taxonID = as.character(id),
+    kingdom = .rank_val(classif, "Kingdom"),
+    phylum  = .rank_val(classif, "Phylum"),
+    class   = .rank_val(classif, "Class"),
+    order   = .rank_val(classif, "Order"),
+    family  = .rank_val(classif, "Family"),
+    genus   = .rank_val(classif, "Genus")
+  )
+}
+
+# Build taxonomy lookup ONLY for real AphiaIDs
+unique_ids <- df_barq %>%
+  distinct(taxonID) %>%
+  filter(!is.na(taxonID), taxonID != "", str_detect(taxonID, "^[0-9]+$")) %>%
+  pull(taxonID)
+
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+# Join back (keep blanks for non-matches)
+df_barq <- df_barq %>%
+  mutate(taxonID = as.character(taxonID)) %>%
+  select(-any_of(c("kingdom","phylum","class","order","family","genus"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID") %>%
+  mutate(across(c(kingdom, phylum, class, order, family, genus), ~replace_na(.x, "")))
+
+
+#Fill out and edit other data columns with project details
+df_barq <- df_barq %>%
+  mutate(
+    # IDs
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    ),
+  )
+
+
+#View dataframe
+View(df_barq)
+
+
+#Order the columns to be in GOTeDNA Order
+df_barq <- df_barq %>%
+  select(
+    GOTeDNA_ID,              # Protocol ID
+    GOTeDNA_version,         # protocol version
+    basisOfRecord,           # basis of record
+    materialSampleID,        # material sample
+    eventID,                 # event ID
+    recordedBy,              # recorded by
+    target_gene,             # target gene
+    target_subfragment,      # target subfragment
+    scientificName,          # scientific name
+    taxonID,                 # taxon ID
+    kingdom,                 # kingdom
+    phylum,                  # phylum
+    class,                   # class
+    order,                   # order
+    family,                  # family
+    genus,                   # genus
+    occurrenceID,            # occurrence ID
+    organismQuantity,        # organism quantity
+    organismQuantityType,    # organism quantity type
+    sampleSizeValue,         # sample size value
+    sampleSizeUnit,          # sample size unit
+    samplingProtocol,        # sampling protocol
+    associatedSequences,     # associated sequences
+    identificationRemarks    # identification remarks
+  )
+
+#View df
+#View(df_barq12S)
+
+##Do the same for erin's pipeline file -----------------------------------------------------------------
+
+#Create df with GOTeDNA columns and add rows for species names from bioinformatic output file (xlsx/csv)
+
+df_erin <- data.frame(
+  Project_ID = character(length(erin$Species)),
+  GOTeDNA_ID = character(length(erin$Species)),
+  GOTeDNA_version = character(length(erin$Species)),
+  basisOfRecord = character(length(erin$Species)),
+  materialSampleID = character(length(erin$Species)),
+  eventID = character(length(erin$Species)),
+  recordedBy = character(length(erin$Species)),
+  target_gene = character(length(erin$Species)),
+  target_subfragment = character(length(erin$Species)),
+  scientificName = erin$Species,
+  taxonID = character(length(erin$Species)),
+  kingdom = character(length(erin$Species)),
+  phylum = character(length(erin$Species)),
+  class = character(length(erin$Species)),
+  order = character(length(erin$Species)),
+  family = character(length(erin$Species)),
+  genus = character(length(erin$Species)),
+  occurrenceID = character(length(erin$Species)),
+  organismQuantity = numeric(length(erin$Species)),
+  organismQuantityType = character(length(erin$Species)),
+  sampleSizeValue = character(length(erin$Species)),
+  sampleSizeUnit = character(length(erin$Species)),
+  samplingProtocol = character(length(erin$Species)),
+  associatedSequences = character(length(erin$Species)),
+  identificationRemarks = character(length(erin$Species)),
+  stringsAsFactors = FALSE
+)
+
+
+#View dataframe
+#View(df_erin)
+
+# Pivot from wide (samples as columns) to long (sample, value)
+# Linking bioinformatic output to GOTeDNA file format
+df_erin <- erin %>%
+  pivot_longer(
+    cols = -c(Species, Group, Genus, Species, Total),   # keep Species fixed, everything else pivots
+    names_to = "materialSampleID",
+    values_to = "organismQuantity"
+  ) %>%
+  mutate(
+    Project_ID = NA_character_,
+    GOTeDNA_ID = NA_character_,
+    GOTeDNA_version = NA_character_,
+    basisOfRecord = "MaterialSample",
+    eventID = NA_character_,
+    recordedBy = NA_character_,
+    target_gene = "COI",
+    target_subfragment = NA_character_,
+    scientificName = Species,  #Species name
+    taxonID = NA_character_,
+    kingdom = NA_character_,
+    phylum = NA_character_,
+    class = NA_character_,
+    order = NA_character_,
+    family = NA_character_,
+    genus = NA_character_,
+    occurrenceID = NA_character_,
+    organismQuantityType = "DNA sequence reads",
+    sampleSizeValue = Total,
+    sampleSizeUnit = "DNA sequence reads",
+    samplingProtocol = NA_character_,
+    associatedSequences = NA_character_,
+    identificationRemarks = NA_character_
+  ) %>%
+  select(
+    Project_ID, GOTeDNA_ID, GOTeDNA_version, basisOfRecord, materialSampleID, eventID,
+    recordedBy, target_gene, target_subfragment, scientificName, taxonID,
+    kingdom, phylum, class, order, family, genus, occurrenceID,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,
+    samplingProtocol, associatedSequences, identificationRemarks
+  )
+
+# View dataframe
+#View(df_erin)
+
+# 1) Build Species → AphiaID lookup
+Species_lookup <- tibble::tibble(
+  scientificName = unique(df_erin$scientificName)
+) %>%
+  mutate(
+    taxonID = sapply(scientificName, function(s) {
+      id <- tryCatch(
+        wm_name2id(s, marine_only = FALSE),
+        error = function(e) NA
+      )
+      if (is.null(id) || length(id) == 0) NA_integer_ else as.integer(id[1])
+    })
+  )
+
+# 2) Join AphiaIDs and replace NA with empty string
+df_erin <- df_erin %>%
+  select(-any_of("taxonID")) %>%
+  left_join(Species_lookup, by = "scientificName") %>%
+  mutate(
+    taxonID = if_else(
+      is.na(taxonID),
+      "",
+      as.character(taxonID)
+    )
+  )
+
+# Safe extractor for a given rank using the 'scientificname' column
+library(dplyr)
+library(purrr)
+library(stringr)
+library(tibble)
+library(worrms)
+
+# Safe extractor
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank","scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  # guard against blanks / non-numeric ids
+  if (is.na(id) || id == "" || !str_detect(id, "^[0-9]+$")) {
+    return(tibble(
+      taxonID = as.character(id),
+      kingdom = NA_character_, phylum = NA_character_, class = NA_character_,
+      order = NA_character_, family = NA_character_, genus = NA_character_
+    ))
+  }
+  
+  classif <- tryCatch(wm_classification(as.integer(id)), error = function(e) NULL)
+  
+  tibble(
+    taxonID = as.character(id),
+    kingdom = .rank_val(classif, "Kingdom"),
+    phylum  = .rank_val(classif, "Phylum"),
+    class   = .rank_val(classif, "Class"),
+    order   = .rank_val(classif, "Order"),
+    family  = .rank_val(classif, "Family"),
+    genus   = .rank_val(classif, "Genus")
+  )
+}
+
+# Build taxonomy lookup ONLY for real AphiaIDs
+unique_ids <- df_erin %>%
+  distinct(taxonID) %>%
+  filter(!is.na(taxonID), taxonID != "", str_detect(taxonID, "^[0-9]+$")) %>%
+  pull(taxonID)
+
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+# Join back (keep blanks for non-matches)
+df_erin <- df_erin %>%
+  mutate(taxonID = as.character(taxonID)) %>%
+  select(-any_of(c("kingdom","phylum","class","order","family","genus"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID") %>%
+  mutate(across(c(kingdom, phylum, class, order, family, genus), ~replace_na(.x, "")))
+
+
+#Fill out and edit other data columns with project details
+df_erin <- df_erin %>%
+  mutate(
+    # IDs
+    eventID = paste(GOTeDNA_ID, materialSampleID, sep = "-"),
+    occurrenceID = paste(
+      GOTeDNA_ID, materialSampleID, target_gene, substr(genus, 1, 4),
+      sep = "-"
+    ),
+  )
+
+
+#View dataframe
+#View(df_erin)
+
+
+#Order the columns to be in GOTeDNA Order
+df_erin <- df_erin %>%
+  select(
+    GOTeDNA_ID,              # Protocol ID
+    GOTeDNA_version,         # protocol version
+    basisOfRecord,           # basis of record
+    materialSampleID,        # material sample
+    eventID,                 # event ID
+    recordedBy,              # recorded by
+    target_gene,             # target gene
+    target_subfragment,      # target subfragment
+    scientificName,          # scientific name
+    taxonID,                 # taxon ID
+    kingdom,                 # kingdom
+    phylum,                  # phylum
+    class,                   # class
+    order,                   # order
+    family,                  # family
+    genus,                   # genus
+    occurrenceID,            # occurrence ID
+    organismQuantity,        # organism quantity
+    organismQuantityType,    # organism quantity type
+    sampleSizeValue,         # sample size value
+    sampleSizeUnit,          # sample size unit
+    samplingProtocol,        # sampling protocol
+    associatedSequences,     # associated sequences
+    identificationRemarks    # identification remarks
+  )
+
+#View df
+View(df_erin)
+
+
+##COMPLETE
+
+#Make into excel files and input into Google Sheets
+
+#install.packages("writexl")
+writexl::write_xlsx(
+  df_barq,
+  "Barq_Halifax2023_COI_GOTeDNA_SampleTemplateFormat.xlsx"
+)
+
+writexl::write_xlsx(
+  df_erin,
+  "Erin_Halifax2023_COI_GOTeDNA_SampleTemplateFormat.xlsx"
+)
+
+
