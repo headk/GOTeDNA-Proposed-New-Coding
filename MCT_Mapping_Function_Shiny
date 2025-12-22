@@ -2,6 +2,7 @@
 library(sf)
 library(dplyr)
 library(leaflet)
+library(leaflet.extras)
 library(arcgislayers)
 library(tidyr)
 library(ggplot2)
@@ -94,62 +95,6 @@ mpa_targets <- mpa_marine %>%
 
 mpa_targets_wgs <- st_transform(mpa_targets, 4326)
 
-#######################################################################
-
-#Try manually choosing colours
-mpa_col  <- "blue"
-esi_col  <- "blue"
-fcbb_col <- "blue"
-
-
-leaflet() %>%
-  addProviderTiles("Esri.OceanBasemap") %>%
-
-  # MPAs: St Anns, Musquash, Gully  (all same colour)
-  addPolygons(
-    data        = mpa_targets_wgs,
-    color       = mpa_col,
-    fillColor   = mpa_col,
-    weight      = 2,
-    fillOpacity = 0.5,
-    popup       = ~paste0("<b>", NAME_E, "</b><br>Status: MPA")
-  ) %>%
-
-  # Eastern Shore Islands AOI  (its own colour)
-  addPolygons(
-    data        = esi_poly_wgs,
-    color       = esi_col,
-    fillColor   = esi_col,
-    weight      = 2,
-    fillOpacity = 0.5,
-    popup       = "Eastern Shore Islands AOI"
-  ) %>%
-
-  # Fundian Channel–Browns Bank AOI  (its own colour)
-  addPolygons(
-    data        = fcbb_poly_wgs,
-    color       = fcbb_col,
-    fillColor   = fcbb_col,
-    weight      = 2,
-    fillOpacity = 0.5,
-    popup       = "Fundian Channel–Browns Bank AOI"
-  #) %>%
-
-  # Manual legend
-  #addLegend(
-   # "bottomright",
-    #colors = c(mpa_col, esi_col, fcbb_col),
-    #labels = c("MPAs (St Anns, Musquash, Gully)",
-               #"Eastern Shore Islands AOI",
-              # "Fundian Channel–Browns Bank AOI"),
-   # title  = "Designation / site",
-   # opacity = 0.7
-  )
-
-
-#colour options above, for now just work with blue and try to get the diversity richness code going
-
-#--------------------------------------------------------------------------------------------------------------------------------
 
 #Combine all polygons into one sf object
 
@@ -516,56 +461,8 @@ richness_grid_in_poly_12S <- st_intersection(
   all_polys
 )
 
-#Plot
-
-ggplot() +
-  # richness grid inside polygons
-  geom_sf(data = richness_grid_in_poly_12S,
-          aes(fill = n_species),
-          color = NA) +
-  # polygon outlines
-  geom_sf(data = all_polys,
-          fill = NA,
-          color = "black",
-          linewidth = 0.4) +
-  scale_fill_scico(
-    palette   = "davos",
-    direction = -1,
-    end       = 0.9,
-    name      = "Species richness"
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank()
-  )
-
-ggplot() +
-  # richness grid inside polygons
-  geom_sf(data = richness_grid_in_poly_COI,
-          aes(fill = n_species),
-          color = NA) +
-  # polygon outlines
-  geom_sf(data = all_polys,
-          fill = NA,
-          color = "black",
-          linewidth = 0.4) +
-  scale_fill_scico(
-    palette   = "davos",
-    direction = -1,
-    end       = 0.9,
-    name      = "Species richness"
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank()
-  )
-
-#Stagnant plots created, but I want to create a dynamic plot in leaflet displaying the same species richness information
 
 #Rough copy of interactive species richness plot below
-
-library(sf)
-library(dplyr)
 
 # 12S
 richness_grid_in_poly_12S_poly <- richness_grid_in_poly_12S %>%
@@ -605,62 +502,6 @@ pal_COI <- colorNumeric(
   domain  = richness_grid_in_poly_COI_poly$n_species
 )
 
-leaflet() %>%
-  addProviderTiles("Esri.OceanBasemap") %>%
-
-  # 12S richness grid layer
-  addPolygons(
-    data        = richness_grid_in_poly_12S_poly,
-    group       = "12S richness",
-    fillColor   = ~pal_12S(n_species),
-    fillOpacity = 0.8,
-    color       = NA,
-    smoothFactor = 0.2,
-    label       = ~paste("12S richness:", n_species)
-  ) %>%
-
-  # COI richness grid layer
-  addPolygons(
-    data        = richness_grid_in_poly_COI_poly,
-    group       = "COI richness",
-    fillColor   = ~pal_COI(n_species),
-    fillOpacity = 0.8,
-    color       = NA,
-    smoothFactor = 0.2,
-    label       = ~paste("COI richness:", n_species)
-  ) %>%
-
-  # polygon outlines (MPAs + AOIs)
-  addPolygons(
-    data        = all_polys,  # or all_polys if that was already fine
-    group       = "MPA/AOI outlines",
-    fillOpacity = 0,
-    color       = "black",
-    weight      = 2,
-    popup       = ~site_name
-  ) %>%
-  addLegend(
-    "bottomright",
-    pal     = pal_12S,
-    values  = richness_grid_in_poly_12S_poly$n_species,
-    title   = "12S richness",
-    opacity = 1
-  ) %>%
-  addLegend(
-    "bottomleft",
-    pal     = pal_COI,
-    values  = richness_grid_in_poly_COI_poly$n_species,
-    title   = "COI richness",
-    opacity = 1
-  ) %>%
-  addLayersControl(
-    overlayGroups = c("12S richness", "COI richness", "MPA/AOI outlines"),
-    options = layersControlOptions(collapsed = FALSE)
-  )
-
-
-
-#combine total 12S and COI richness -> total richness per cell = # of unique species in that cell across both markers
 
 #Combine 12s + coi points into one sf
 
@@ -1035,19 +876,46 @@ cell_species_total <- cell_species_all %>%
 
 ## ---- 2) UI ----
 ui <- fluidPage(
-  sidebarLayout(
-    sidebarPanel(
-      h4("Selected grid cell"),
-      uiOutput("cell_summary"),
-      hr(),
-      h4("Species list"),
-      uiOutput("species_panel")
-    ),
-    mainPanel(
-      leafletOutput("map", height = 750)
-    )
+  tags$head(tags$style(HTML("
+    #floating_panel {
+      background: rgba(255,255,255,0.92);
+      border-radius: 6px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+      padding: 12px 14px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+  "))),
+  leafletOutput("map", height = "100vh"),
+  absolutePanel(
+    id="floating_panel",
+    fixed=TRUE, draggable=TRUE,
+    top=10, left=70, width=360,  #Need to change this
+    h4("Selected area"),
+    uiOutput("cell_summary"),
+    hr(),
+    h4("Filter"),
+    uiOutput("taxa_buttons"),
+    hr(),
+    h4("Species list"),
+    uiOutput("species_panel")
   )
 )
+
+
+#  sidebarLayout(
+#    sidebarPanel(
+#      h4("Selected grid cell"),
+#      uiOutput("cell_summary"),
+#      hr(),
+#      h4("Species list"),
+#      uiOutput("species_panel")
+#    ),
+#    mainPanel(
+#      leafletOutput("map", height = 750)
+#    )
+#  )
+#)
 
 ## ---- 3) Server ----
 server <- function(input, output, session){
@@ -1143,6 +1011,15 @@ server <- function(input, output, session){
         title    = "Species richness from eDNA",
         opacity  = 1
       ) %>%
+      addDrawToolbar(
+        targetGroup = "drawn",
+        polygonOptions = drawPolygonOptions(showArea = TRUE),
+        rectangleOptions = drawRectangleOptions(),
+        circleOptions = FALSE,
+        polylineOptions = FALSE,
+        markerOptions = FALSE,
+        editOptions = editToolbarOptions()
+      ) %>%
       addLayersControl(
         baseGroups = c("CartoDB Positron", "Esri Ocean Basemap", "Esri World Imagery"),
         overlayGroups = c(
@@ -1174,13 +1051,13 @@ server <- function(input, output, session){
     ral <- richness_grid_all_poly         %>% st_drop_geometry() %>% filter(cell_id == cid) %>% pull(n_species_total)
 
     tagList(
-      strong(paste("cell_id:", cid)),
-      tags$br(),
-      paste("Total richness:", ifelse(length(ral)==0, 0, ral)),
-      tags$br(),
-      paste("12S richness:",   ifelse(length(r12)==0, 0, r12)),
-      tags$br(),
-      paste("COI richness:",   ifelse(length(rco)==0, 0, rco))
+      strong(paste("Insert species group images here? See rphylopic")),
+      #tags$br(),
+      #paste("Total richness:", ifelse(length(ral)==0, 0, ral)),
+      #tags$br(),
+      #paste("12S richness:",   ifelse(length(r12)==0, 0, r12)),
+      #tags$br(),
+      #paste("COI richness:",   ifelse(length(rco)==0, 0, rco))
     )
   })
 
@@ -1283,5 +1160,3 @@ server <- function(input, output, session){
 }
 
 shinyApp(ui, server)
-######################################################
-
