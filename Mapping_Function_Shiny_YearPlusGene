@@ -1,7 +1,3 @@
-#Primary goal for tomorrow: Create filter for the year but toggle for the gene
-#See if I can make it quicker and w/out resetting each time using the filter
-#Get heatmap toggle to work again
-
 #load libraries
 library(sf)
 library(dplyr)
@@ -14,6 +10,7 @@ library(scico)
 library(wesanderson)
 library(htmltools)
 library(shiny)
+library(htmlwidgets)
 
 #Load the Canadian MPA Network Shapefiles and planning regions extracted from the Canadian Database of Protected and Conserved Areas
 gdb_path <- "C:/Users/HEADK/Desktop/ProtectedConservedArea_2024.gdb"
@@ -1038,12 +1035,6 @@ ui <- fluidPage(
       choices = c("All", sort(unique(species_sf_all$year))),
       selected = "All"
     ),
-    selectInput(
-      inputId = "sel_gene",
-      label   = "Gene region",
-      choices = c("All", sort(unique(species_sf_all$target_gene))),
-      selected = "All"
-    ),
     # uiOutput("taxa_buttons"), # keep if you want
     
     hr(),
@@ -1057,216 +1048,53 @@ ui <- fluidPage(
 ## ---- 3) Server ----
 server <- function(input, output, session){
   
-  # =========================
-  # 0) Helpers + precomputed lookups
-  # =========================
-  
-  # ---- A) Richness layers you already computed ----
-  # Expect these objects to exist (from your script):
-  # richness_grid_all_poly
-  # richness_grid_in_poly_2024_COI_poly
-  # richness_grid_in_poly_2024_12S_poly
-  # richness_grid_in_poly_2023_12S_poly
-  # richness_grid_in_poly_2022_12S_poly
-  #
-  # plus: pal_rich, all_polys_zones, all_polys_click, sampling_pts
-  
-  # Standardize each richness layer to have:
-  #   cell_id, n_species (value), plus whatever else
-  rich_layers <- list(
-    "All_All"   = richness_grid_all_poly %>%
-      dplyr::mutate(n_species = n_species_total),
-    
-    "COI_2024"  = richness_grid_in_poly_2024_COI_poly %>%
-      dplyr::mutate(n_species = n_species),
-    
-    "12S_2024"  = richness_grid_in_poly_2024_12S_poly %>%
-      dplyr::mutate(n_species = n_species),
-    
-    "12S_2023"  = richness_grid_in_poly_2023_12S_poly %>%
-      dplyr::mutate(n_species = n_species),
-    
-    "12S_2022"  = richness_grid_in_poly_2022_12S_poly %>%
-      dplyr::mutate(n_species = n_species)
-  )
-  
-  # If you want “All genes for a single year” layers, add them here.
-  # E.g., if you precomputed richness for 2024 across BOTH markers, add:
-  # rich_layers[["All_2024"]] <- richness_grid_in_poly_2024_ALL_poly %>% mutate(n_species = n_species_total)
-  #
-  # Likewise “All years for a single gene” layers if you build them.
-  
-  # ---- B) Build ONE “cell -> species” table with marker + year ----
-  # Needs grid_with_pts_all from your script (grid joined to species_sf_all)
-  cell_species_all <- grid_with_pts_all %>%
-    sf::st_drop_geometry() %>%
-    dplyr::transmute(
-      cell_id = cell_id,
-      marker  = marker,
-      year    = year,
-      scientificName = scientificName
-    ) %>%
-    dplyr::filter(!is.na(scientificName), scientificName != "") %>%
-    dplyr::distinct(cell_id, marker, year, scientificName)
-  
-  # ---- C) Build ONE “polygon -> species” table with marker + year ----
-  # Make sure your combined points have marker + year:
-  # species_sf_all must exist and have marker + year
-  species_in_polys_all <- sf::st_join(
-    species_sf_all,
-    all_polys,
-    join = sf::st_within,
-    left = FALSE
-  ) %>%
-    sf::st_drop_geometry() %>%
-    dplyr::transmute(
-      site_name, site_type,
-      marker = marker,
-      year   = year,
-      scientificName
-    ) %>%
-    dplyr::filter(!is.na(scientificName), scientificName != "") %>%
-    dplyr::distinct(site_name, site_type, marker, year, scientificName)
-  
-  # ---- D) Click parsing ----
-  clicked <- reactive({
-    input$map_shape_click
-  })
-  
-  clicked_cell <- reactive({
-    cl <- clicked()
-    if (is.null(cl) || is.null(cl$id)) return(NA_integer_)
-    if (grepl("\\|\\|", cl$id)) return(NA_integer_)  # polygon click, not grid cell
-    suppressWarnings(as.integer(cl$id))
-  })
-  
-  clicked_poly <- reactive({
-    cl <- clicked()
-    if (is.null(cl) || is.null(cl$id)) return(NULL)
-    if (!grepl("\\|\\|", cl$id)) return(NULL)
-    parts <- strsplit(cl$id, "\\|\\|")[[1]]
-    list(site_type = parts[1], site_name = parts[2])
-  })
-  
-  
-  # =========================
-  # 1) Selection logic (UI filter -> which richness layer to show)
-  # =========================
-  
-  # You said:
-  # - add "All years" + "All genes" options
-  # - when "All" is selected, you *don't* want a separate "Total richness" toggle;
-  #   instead we show ONE heatmap layer at a time, driven by the filter.
-  
-  # Determine which richness layer key to use
-  selected_key <- reactive({
-    req(input$sel_gene, input$sel_year)
-    
-    g <- input$sel_gene
-    y <- input$sel_year
-    
-    # Most basic mapping based on what you *currently* have computed:
-    # (All,All) -> All_All
-    if (g == "All" && y == "All") return("All_All")
-    
-    # Single gene + single year
-    if (g != "All" && y != "All") {
-      k <- paste(g, y, sep = "_")
-      if (k %in% names(rich_layers)) return(k)
-      return("All_All")  # fallback if you haven’t built it yet
-    }
-    
-    # Single gene + All years (requires a precomputed layer; fallback to All_All)
-    if (g != "All" && y == "All") {
-      k <- paste(g, "All", sep = "_")  # e.g., "12S_All"
-      if (k %in% names(rich_layers)) return(k)
-      return("All_All")
-    }
-    
-    # All genes + single year (requires a precomputed layer; fallback to All_All)
-    if (g == "All" && y != "All") {
-      k <- paste("All", y, sep = "_")  # e.g., "All_2024"
-      if (k %in% names(rich_layers)) return(k)
-      return("All_All")
-    }
-    
-    "All_All"
-  })
-  
-  # Filtered sampling points (optional, but usually what you want)
-  sampling_pts_f <- reactive({
-    g <- input$sel_gene
-    y <- input$sel_year
-    
-    pts <- sampling_pts
-    
-    if (g != "All") pts <- pts %>% dplyr::filter(marker == g)
-    if (y != "All") pts <- pts %>% dplyr::filter(as.character(year) == as.character(y))
-    
-    pts
-  })
-  
-  # Filtered cell->species lookup (for grid click list)
-  cell_species_f <- reactive({
-    g <- input$sel_gene
-    y <- input$sel_year
-    
-    df <- cell_species_all
-    if (g != "All") df <- df %>% dplyr::filter(marker == g)
-    if (y != "All") df <- df %>% dplyr::filter(as.character(year) == as.character(y))
-    
-    df
-  })
-  
-  # Filtered polygon->species lookup (for MPA/AOI click list)
-  poly_species_f <- reactive({
-    g <- input$sel_gene
-    y <- input$sel_year
-    
-    df <- species_in_polys_all
-    if (g != "All") df <- df %>% dplyr::filter(marker == g)
-    if (y != "All") df <- df %>% dplyr::filter(as.character(year) == as.character(y))
-    
-    df %>%
-      dplyr::group_by(site_name, site_type) %>%
-      dplyr::summarise(
-        species = list(sort(unique(scientificName))),
-        .groups = "drop"
-      )
-  })
-  
-  
-  # =========================
-  # 2) Leaflet initial render
-  # =========================
-  
   output$map <- renderLeaflet({
-    # default layer based on initial UI (likely All_All)
-    k0 <- selected_key()
-    lyr0 <- rich_layers[[k0]]
-    
     leaflet() %>%
       # basemaps
       addProviderTiles(providers$CartoDB.Positron, group = "CartoDB Positron") %>%
       addProviderTiles(providers$Esri.OceanBasemap, group = "Esri Ocean Basemap") %>%
       addProviderTiles(providers$Esri.WorldImagery, group = "Esri World Imagery") %>%
       
-      # Active richness grid (ONE layer; driven by UI)
+      # 12S richness (clickable)
       addPolygons(
-        data        = lyr0,
-        group       = "Active richness",
-        layerId     = ~cell_id,
+        data        = richness_grid_in_poly_2024_12S_poly,
+        group       = "Species detected by 12S",
+        layerId     = ~cell_id,                 # <-- key for click ID
         fillColor   = ~pal_rich(n_species),
         fillOpacity = 0.8,
         color       = NA,
         smoothFactor = 0.2,
-        label       = ~paste("Richness:", n_species),
+        label       = ~paste("12S richness:", n_species),
         highlightOptions = highlightOptions(weight = 2, bringToFront = TRUE)
       ) %>%
       
-      # Sampling points (filtered later via leafletProxy too)
+      # COI richness (clickable)
+      addPolygons(
+        data        = richness_grid_in_poly_2024_COI_poly,
+        group       = "Species detected by COI",
+        layerId     = ~cell_id,                 # <-- key for click ID
+        fillColor   = ~pal_rich(n_species),
+        fillOpacity = 0.8,
+        color       = NA,
+        smoothFactor = 0.2,
+        label       = ~paste("COI richness:", n_species),
+        highlightOptions = highlightOptions(weight = 2, bringToFront = TRUE)
+      ) %>%
+      
+      # Total richness (clickable)
+      addPolygons(
+        data        = richness_grid_all_poly,
+        group       = "Species detected by all markers",
+        layerId     = ~cell_id,                 # <-- key for click ID
+        fillColor   = ~pal_rich(n_species_total),
+        fillOpacity = 0.8,
+        color       = NA,
+        label       = ~paste("Total richness:", n_species_total),
+        highlightOptions = highlightOptions(weight = 2, bringToFront = TRUE)
+      ) %>%
+      # Sampling points
       addCircleMarkers(
-        data        = sampling_pts_f(),
+        data        = sampling_pts,
         group       = "Sampling points",
         radius      = 2,
         stroke      = TRUE,
@@ -1280,8 +1108,7 @@ server <- function(input, output, session){
           ifelse(is.na(materialSampleID), "", paste0(" | Sample: ", materialSampleID))
         )
       ) %>%
-      
-      # Zone boundaries (not clickable)
+      # 1) show internal zone boundaries
       addPolygons(
         data        = all_polys_zones,
         group       = "MPA/AOI zone boundaries",
@@ -1289,199 +1116,199 @@ server <- function(input, output, session){
         color       = "black",
         weight      = 1,
         opacity     = 0.8,
-        options     = pathOptions(clickable = FALSE)
+        options     = pathOptions(clickable = FALSE)  # don't steal clicks
       ) %>%
       
-      # Clickable dissolved site outline
+      # 2) clickable whole-site boundary (captures clicks)
       addPolygons(
         data        = all_polys_click,
-        group       = "MPA/AOI outlines",
+        group       = "Total species detected per MPA/AOI",
         layerId     = ~paste(site_type, site_name, sep="||"),
-        fillOpacity = 0.01,
+        fillOpacity = 0.01,   # must be >0 to be reliably clickable
         color       = "black",
         weight      = 2,
         opacity     = 1,
         popup       = ~site_name
       ) %>%
       
-      # Legend (values come from the active layer)
+      # shared legend
       addLegend(
         position = "bottomright",
         pal      = pal_rich,
-        values   = lyr0$n_species,
+        values   = richness_grid_all_poly$n_species_total,     #rich_domain,   # <- use the numeric domain you already made
         title    = "Species richness from eDNA",
         opacity  = 1
       ) %>%
-      
+      addDrawToolbar(
+        targetGroup = "drawn",
+        polygonOptions = drawPolygonOptions(showArea = TRUE),
+        rectangleOptions = drawRectangleOptions(),
+        circleOptions = FALSE,
+        polylineOptions = FALSE,
+        markerOptions = FALSE,
+        editOptions = editToolbarOptions()
+      ) %>%
       addLayersControl(
         baseGroups = c("CartoDB Positron", "Esri Ocean Basemap", "Esri World Imagery"),
-        overlayGroups = c("Richness heatmap", "MPA/AOI outlines", "MPA/AOI zone boundaries", "Sampling points"),
+        overlayGroups = c(
+          "Species detected by all markers",
+          "Species detected by 12S",
+          "Species detected by COI",
+          "Total species detected per MPA/AOI",
+          "MPA/AOI zone boundaries",
+          "Sampling points"
+        ),
         options = layersControlOptions(collapsed = FALSE)
       )
   })
+  # clicked cell_id (works because we used layerId = ~cell_id)
+  clicked_cell <- reactive({
+    click <- input$map_shape_click
+    if (is.null(click) || is.null(click$id)) return(NA_integer_)
+    suppressWarnings(as.integer(click$id))
+  })
   
-  
-  # =========================
-  # 3) Update the heatmap + points when filters change
-  # =========================
-  
-  observeEvent(selected_key(), {
-    k <- selected_key()
-    lyr <- rich_layers[[k]]
-    if (is.null(lyr)) return()
-    
-    leafletProxy("map") %>%
-      clearGroup("Active richness") %>%
-      clearControls() %>%  # removes previous legends
-      addPolygons(
-        data        = lyr,
-        group       = "Active richness",
-        layerId     = ~cell_id,
-        fillColor   = ~pal_rich(n_species),
-        fillOpacity = 0.8,
-        color       = NA,
-        smoothFactor = 0.2,
-        label       = ~paste("Richness:", n_species),
-        highlightOptions = highlightOptions(weight = 2, bringToFront = TRUE)
-      ) %>%
-      addLegend(
-        position = "bottomright",
-        pal      = pal_rich,
-        values   = lyr$n_species,
-        title    = "Species richness from eDNA",
-        opacity  = 1
-      )
-  }, ignoreInit = TRUE)
-  
-  observeEvent(list(input$sel_gene, input$sel_year), {
-    leafletProxy("map") %>%
-      clearGroup("Sampling points") %>%
-      addCircleMarkers(
-        data        = sampling_pts_f(),
-        group       = "Sampling points",
-        radius      = 2,
-        stroke      = TRUE,
-        weight      = 1,
-        opacity     = 1,
-        fillOpacity = 0.8,
-        label       = ~paste0(
-          "Marker: ", marker,
-          ifelse(is.na(year), "", paste0(" | Year: ", year)),
-          ifelse(is.na(source_file), "", paste0(" | File: ", source_file)),
-          ifelse(is.na(materialSampleID), "", paste0(" | Sample: ", materialSampleID))
-        )
-      )
-  }, ignoreInit = TRUE)
-  
-  
-  # =========================
-  # 4) Sidebar outputs
-  # =========================
-  
+  # sidebar summary
   output$cell_summary <- renderUI({
-    cl <- clicked()
-    
-    if (is.null(cl) || is.null(cl$id)) {
-      return(em("Click a grid cell (heatmap) or an MPA/AOI outline."))
-    }
-    
-    # If polygon outline click
-    pol <- clicked_poly()
-    if (!is.null(pol)) {
-      return(tagList(
-        strong(paste0(pol$site_type, ": ", pol$site_name)),
-        tags$br(),
-        em("Showing species for current filter (gene/year).")
-      ))
-    }
-    
-    # If grid cell click
     cid <- clicked_cell()
-    if (is.na(cid)) return(em("Click a grid cell (heatmap) or an MPA/AOI outline."))
     
-    # Pull current active richness value for that cell
-    k <- selected_key()
-    lyr <- rich_layers[[k]] %>% sf::st_drop_geometry()
-    
-    val <- lyr %>%
-      dplyr::filter(cell_id == cid) %>%
-      dplyr::pull(n_species)
-    
-    if (length(val) == 0) val <- 0
+    # pull richness values from each layer (if missing, show NA/0)
+    r12 <- richness_grid_in_poly_2024_12S_poly %>% st_drop_geometry() %>% filter(cell_id == cid) %>% pull(n_species)
+    rco <- richness_grid_in_poly_2024_COI_poly %>% st_drop_geometry() %>% filter(cell_id == cid) %>% pull(n_species)
+    ral <- richness_grid_all_poly         %>% st_drop_geometry() %>% filter(cell_id == cid) %>% pull(n_species_total)
     
     tagList(
-      strong(paste("Selected grid cell:", cid)),
-      tags$br(),
-      paste("Richness:", val)
+      strong(paste("Insert species group images here? See rphylopic")),
+      #tags$br(),
+      #paste("Total richness:", ifelse(length(ral)==0, 0, ral)),
+      #tags$br(),
+      #paste("12S richness:",   ifelse(length(r12)==0, 0, r12)),
+      #tags$br(),
+      #paste("COI richness:",   ifelse(length(rco)==0, 0, rco))
     )
   })
   
-  
+  # species list panel (shows Total + 12S + COI)
   output$species_panel <- renderUI({
-    cl <- clicked()
-    if (is.null(cl) || is.null(cl$id)) {
-      return(em("Click a grid cell (heatmap) or an MPA/AOI outline."))
+    click <- input$map_shape_click
+    if (is.null(click) || is.null(click$id)) {
+      return(em("Click a grid cell or an MPA/AOI outline."))
     }
     
-    # ---- A) Polygon click (MPA/AOI) ----
-    pol <- clicked_poly()
-    if (!is.null(pol)) {
-      row <- poly_species_f() %>%
-        dplyr::filter(site_type == pol$site_type, site_name == pol$site_name)
+    # What overlays are currently ON in the top-right Layers control?
+    groups_on <- input$map_groups %||% character(0)
+    
+    show_total_grid <- "Species detected by all markers" %in% groups_on
+    show_12S_grid   <- "Species detected by 12S" %in% groups_on
+    show_COI_grid   <- "Species detected by COI" %in% groups_on
+    show_poly_total <- "Total species detected per MPA/AOI" %in% groups_on
+    
+    make_list <- function(vec) {
+      if (length(vec) == 0) return(em("None"))
+      tags$div(
+        style = "max-height: 180px; overflow-y: auto; padding-left: 10px;",
+        tags$ul(lapply(vec, tags$li))
+      )
+    }
+    
+    # ---- A) polygon click (ids like "MPA||Gully Marine Protected Area") ----
+    if (grepl("\\|\\|", click$id)) {
+      
+      if (!show_poly_total) {
+        return(em("Turn ON “Total species detected per MPA/AOI” to view polygon species lists."))
+      }
+      
+      parts <- strsplit(click$id, "\\|\\|")[[1]]
+      p_type <- parts[1]
+      p_name <- parts[2]
+      
+      row <- poly_species_total %>%
+        filter(site_type == p_type, site_name == p_name)
       
       spp <- if (nrow(row) == 0) character(0) else row$species[[1]]
-      if (length(spp) == 0) return(em("No species records in this polygon for the current filter."))
+      if (length(spp) == 0) return(em("No species records in this MPA/AOI polygon."))
       
       return(tagList(
-        strong(paste0(pol$site_type, ": ", pol$site_name)),
+        strong(paste0(p_type, ": ", p_name)),
         tags$br(),
-        paste("Unique species:", length(spp)),
+        paste("Total unique species:", length(spp)),
         tags$hr(),
         tags$div(
           style = "max-height: 350px; overflow-y: auto; padding-left: 10px;",
-          tags$ul(lapply(spp, tags$li))
+          tags$ul(lapply(sort(spp), tags$li))
         )
       ))
     }
     
-    # ---- B) Grid click (cell_id) ----
-    cid <- clicked_cell()
-    if (is.na(cid)) return(em("Click a grid cell (heatmap) or an MPA/AOI outline."))
+    # ---- B) grid click (numeric cell_id) ----
+    cid <- suppressWarnings(as.integer(click$id))
+    if (is.na(cid)) return(em("Click a grid cell or an MPA/AOI outline."))
     
-    spp <- cell_species_f() %>%
-      dplyr::filter(cell_id == cid) %>%
-      dplyr::distinct(scientificName) %>%
-      dplyr::arrange(scientificName) %>%
-      dplyr::pull(scientificName)
+    # Pull species for this cell (you already built these lookup tables)
+    spp_total <- cell_species_all %>%
+      filter(cell_id == cid) %>%
+      distinct(scientificName) %>%
+      arrange(scientificName) %>%
+      pull(scientificName)
     
-    if (length(spp) == 0) return(em("No species in this grid cell for the current filter."))
+    spp_12S <- cell_species_2024_12S %>%
+      filter(cell_id == cid) %>%
+      distinct(scientificName) %>%
+      arrange(scientificName) %>%
+      pull(scientificName)
     
-    tagList(
-      strong(paste0("Grid cell ", cid)),
-      tags$br(),
-      paste("Unique species:", length(spp)),
-      tags$hr(),
-      tags$div(
-        style = "max-height: 350px; overflow-y: auto; padding-left: 10px;",
-        tags$ul(lapply(spp, tags$li))
+    spp_COI <- cell_species_2024_COI %>%
+      filter(cell_id == cid) %>%
+      distinct(scientificName) %>%
+      arrange(scientificName) %>%
+      pull(scientificName)
+    
+    # If none of the richness grids are ON, don't show any lists
+    if (!show_total_grid && !show_12S_grid && !show_COI_grid) {
+      return(em("Turn ON a richness layer (all markers / 12S / COI) to view the species list for grid cells."))
+    }
+    
+    panels <- tagList()
+    
+    if (show_total_grid) {
+      panels <- tagAppendChildren(
+        panels,
+        tags$details(open = TRUE,
+                     tags$summary(strong(paste0("Total unique species (", length(spp_total), ")"))),
+                     make_list(spp_total)
+        )
       )
-    )
+    }
+    
+    if (show_12S_grid) {
+      panels <- tagAppendChildren(
+        panels,
+        tags$details(open = !show_total_grid,  # open first visible section
+                     tags$summary(strong(paste0("12S species (", length(spp_12S), ")"))),
+                     make_list(spp_12S)
+        )
+      )
+    }
+    
+    if (show_COI_grid) {
+      panels <- tagAppendChildren(
+        panels,
+        tags$details(open = (!show_total_grid && !show_12S_grid),
+                     tags$summary(strong(paste0("COI species (", length(spp_COI), ")"))),
+                     make_list(spp_COI)
+        )
+      )
+    }
+    
+    panels
   })
   
-  
-  # =========================
-  # 5) Highlight selected grid cell
-  # =========================
-  
+  # highlight selected cell (outline on top)
   observeEvent(input$map_shape_click, {
     cid <- clicked_cell()
-    if (is.na(cid)) return(NULL)
+    if (is.na(cid)) return(NULL)  # <- stops crash when click$id is NULL
     
-    k <- selected_key()
-    lyr <- rich_layers[[k]]
-    if (is.null(lyr)) return(NULL)
-    
-    sel <- lyr %>% dplyr::filter(cell_id == cid)
+    sel <- richness_grid_all_poly %>% filter(cell_id == cid)
     
     leafletProxy("map") %>%
       clearGroup("selected_cell") %>%
@@ -1490,12 +1317,10 @@ server <- function(input, output, session){
         group = "selected_cell",
         fillOpacity = 0,
         color = "white",
-        weight = 3,
-        options = pathOptions(clickable = FALSE)
+        weight = 3
       )
   }, ignoreInit = TRUE)
-  
-}
 
+}
 
 shinyApp(ui, server)
