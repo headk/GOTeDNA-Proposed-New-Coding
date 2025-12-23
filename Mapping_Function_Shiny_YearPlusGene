@@ -1,5 +1,6 @@
 #Primary goal for tomorrow: Create filter for the year but toggle for the gene
-
+#See if I can make it quicker and w/out resetting each time using the filter
+#Get heatmap toggle to work again
 
 #load libraries
 library(sf)
@@ -1411,7 +1412,7 @@ server <- function(input, output, session){
     tagList(
       strong(paste("Selected grid cell:", cid)),
       tags$br(),
-      paste("Richness (current filter):", val)
+      paste("Richness:", val)
     )
   })
   
@@ -1434,7 +1435,7 @@ server <- function(input, output, session){
       return(tagList(
         strong(paste0(pol$site_type, ": ", pol$site_name)),
         tags$br(),
-        paste("Unique species (current filter):", length(spp)),
+        paste("Unique species:", length(spp)),
         tags$hr(),
         tags$div(
           style = "max-height: 350px; overflow-y: auto; padding-left: 10px;",
@@ -1458,7 +1459,7 @@ server <- function(input, output, session){
     tagList(
       strong(paste0("Grid cell ", cid)),
       tags$br(),
-      paste("Unique species (current filter):", length(spp)),
+      paste("Unique species:", length(spp)),
       tags$hr(),
       tags$div(
         style = "max-height: 350px; overflow-y: auto; padding-left: 10px;",
