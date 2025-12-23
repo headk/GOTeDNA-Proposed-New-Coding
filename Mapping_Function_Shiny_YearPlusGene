@@ -1048,6 +1048,53 @@ ui <- fluidPage(
 ## ---- 3) Server ----
 server <- function(input, output, session){
   
+  # ---- helper: if you don't already have %||% ----
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+  
+  # ---- helper: convert leaflet.draw feature -> sf polygon (EPSG:4326) ----
+  feature_to_sf <- function(feature) {
+    req(feature$geometry$type)
+    type <- feature$geometry$type
+    
+    # coordinates are lon/lat (GeoJSON order)
+    coords <- feature$geometry$coordinates
+    
+    # Leaflet.draw will give Polygon or Rectangle as "Polygon"
+    if (type == "Polygon") {
+      # coords: list of rings; use the first ring
+      ring <- coords[[1]]
+      mat  <- do.call(rbind, lapply(ring, function(x) c(x[[1]], x[[2]])))
+      poly <- sf::st_polygon(list(mat))
+      return(sf::st_sfc(poly, crs = 4326) |> sf::st_sf())
+    }
+    
+    if (type == "MultiPolygon") {
+      # coords: list of polygons -> list of rings -> points
+      polys <- lapply(coords, function(poly_i) {
+        ring <- poly_i[[1]]
+        mat  <- do.call(rbind, lapply(ring, function(x) c(x[[1]], x[[2]])))
+        sf::st_polygon(list(mat))
+      })
+      return(sf::st_sfc(sf::st_multipolygon(polys), crs = 4326) |> sf::st_sf())
+    }
+    
+    stop("Drawn feature type not supported: ", type)
+  }
+  
+  # ---- store the most-recent drawn polygon ----
+  drawn_poly <- reactiveVal(NULL)
+  
+  observeEvent(input$map_draw_new_feature, {
+    f <- input$map_draw_new_feature
+    # only keep polygon/rectangle (circle is disabled in your toolbar anyway)
+    drawn_poly(feature_to_sf(f))
+  })
+  
+  observeEvent(input$map_draw_deleted_features, {
+    # if user deletes shapes, clear the selection
+    drawn_poly(NULL)
+  })
+  
   output$map <- renderLeaflet({
     leaflet() %>%
       # basemaps
@@ -1190,9 +1237,58 @@ server <- function(input, output, session){
   
   # species list panel (shows Total + 12S + COI)
   output$species_panel <- renderUI({
+    
+    # ---- 0) If a drawn polygon exists, show species inside it ----
+    poly <- drawn_poly()
+    
+    if (!is.null(poly)) {
+      
+      # IMPORTANT:
+      # This assumes `species_sf_all` is an sf POINT layer with:
+      # - geometry
+      # - scientificName
+      # - year
+      # If your "species_sf_all" is not sf, tell me what it is and I’ll adapt.
+      pts <- species_sf_all
+      
+      # year filter
+      yr <- input$sel_year %||% "All"
+      if (!identical(yr, "All")) {
+        pts <- pts %>% dplyr::filter(as.character(year) == as.character(yr))
+      }
+      
+      # points within drawn polygon
+      inside <- pts[sf::st_within(pts, poly, sparse = FALSE), , drop = FALSE]
+      
+      spp <- inside %>%
+        dplyr::distinct(scientificName) %>%
+        dplyr::arrange(scientificName) %>%
+        dplyr::pull(scientificName)
+      
+      if (length(spp) == 0) {
+        return(shiny::em("No species points fall inside the drawn polygon (with the current Year filter)."))
+      }
+      
+      return(shiny::tagList(
+        shiny::strong("Drawn polygon selection"),
+        shiny::tags$br(),
+        paste0("Points inside: ", nrow(inside)),
+        shiny::tags$br(),
+        paste0("Unique species: ", length(spp)),
+        shiny::tags$hr(),
+        shiny::tags$div(
+          style = "max-height: 350px; overflow-y: auto; padding-left: 10px;",
+          shiny::tags$ul(lapply(spp, shiny::tags$li))
+        ),
+        shiny::tags$hr(),
+        shiny::em("Tip: delete the drawn shape to return to grid/MPA click lists.")
+      ))
+    }
+    
+    # ---- 1) Otherwise fall back to your existing click-based logic ----
     click <- input$map_shape_click
     if (is.null(click) || is.null(click$id)) {
-      return(em("Click a grid cell or an MPA/AOI outline."))
+      return(em("Click a grid cell or an MPA/AOI outline, or draw a polygon."))
     }
     
     # What overlays are currently ON in the top-right Layers control?
