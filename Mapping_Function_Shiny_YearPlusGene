@@ -11,6 +11,9 @@ library(wesanderson)
 library(htmltools)
 library(shiny)
 library(htmlwidgets)
+library(DT)
+library(shinyjs)
+
 
 #Load the Canadian MPA Network Shapefiles and planning regions extracted from the Canadian Database of Protected and Conserved Areas
 gdb_path <- "C:/Users/HEADK/Desktop/ProtectedConservedArea_2024.gdb"
@@ -164,7 +167,8 @@ MUSQ24_12S <- read.csv("OBIS_MCT_Musq24_occurrence_FORMAP_notcomplete.csv")
 
 SABGULFUN_24_COI <- SABGULFUN_24_COI %>%
   mutate(
-    target_gene = "COI"
+    target_gene = "COI",
+    scientificName = str_replace_all(scientificName, "_", " ")
   )
 
 SABGULFUN_24_12S <- SABGULFUN_24_12S %>%
@@ -1081,54 +1085,274 @@ rich_on_grid <- function(grid_sf, pts_sf, value_col = "scientificName") {
     (\(x) x[!st_is_empty(x), ])()
 }
 
+##NOTE: Right now the SARA Schedule 1 filter is matching based on the data inputted into the app. Once linking the code to OBIS data, edit so that it matches based on WoRMS AphiaID
+
+
+#Code for the SARA Schedule 1 list (Cleanup and WoRMS linkage)
+
+#Call in file from OBIS_Prep folder
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+SARA <- read.xlsx("SARA_Schedule1_RoughCopy_ForRCleanup.xlsx")
+
+##Clean up columns 
+
+#First, remove empty columns and columns without brackets from "Common.Name"
+
+library(dplyr)
+library(stringr)
+
+SARA_Clean <- SARA %>%
+  filter(
+    !is.na(Common.Name),
+    Common.Name != "",
+    !is.na(Scientific.Name) |
+      str_detect(Common.Name, "\\(|\\)")
+  )
+
+
+SARA_Clean <- SARA_Clean %>%
+  mutate(
+    # extract text inside ( )
+    paren_name = str_extract(Common.Name, "(?<=\\().*?(?=\\))"),
+    
+    # fill Scientific.Name only if missing
+    Scientific.Name = if_else(
+      is.na(Scientific.Name) | Scientific.Name == "",
+      paren_name,
+      Scientific.Name
+    ),
+    
+    # OPTIONAL: remove the ( ... ) part from Common.Name
+    Common.Name = str_remove(Common.Name, "\\s*\\(.*?\\)")
+  ) %>%
+  select(-paren_name)
+
+
+library(dplyr)
+library(purrr)
+library(worrms)
+
+# helper: safe lookup for one name
+worms_lookup_one <- function(x) {
+  if (is.na(x) || !nzchar(x)) return(tibble(AphiaID = NA_integer_, worms_status = NA_character_, worms_valid_name = NA_character_))
+  
+  res <- tryCatch(
+    worrms::wm_records_name(name = x, fuzzy = TRUE, marine_only = TRUE),
+    error = function(e) NULL
+  )
+  
+  if (is.null(res) || nrow(res) == 0) {
+    tibble(AphiaID = NA_integer_, worms_status = NA_character_, worms_valid_name = NA_character_)
+  } else {
+    tibble(
+      AphiaID         = res$AphiaID[[1]],
+      worms_status    = res$status[[1]],      # e.g., "accepted", "unaccepted"
+      worms_valid_name= res$valid_name[[1]]   # accepted name WoRMS points to
+    )
+  }
+}
+
+# do lookups once per unique Scientific.Name, then join back
+worms_tbl <- SARA_Clean %>%
+  distinct(Scientific.Name) %>%
+  mutate(worms = map(Scientific.Name, worms_lookup_one)) %>%
+  tidyr::unnest(worms)
+
+SARA_Clean <- SARA_Clean %>%
+  left_join(worms_tbl, by = "Scientific.Name") %>%
+  mutate(
+    worms_match = !is.na(AphiaID)
+  )
+
+sara_lookup <- reactive({
+  SARA_Clean %>%
+    dplyr::transmute(
+      scientificName = as.character(Scientific.Name),
+      Rating = as.character(Rating)
+    ) %>%
+    dplyr::filter(!is.na(scientificName), scientificName != "") %>%
+    dplyr::distinct(scientificName, .keep_all = TRUE)
+})
+
+sample_tag <- function(df) {
+  df %>%
+    dplyr::mutate(
+      yr = dplyr::if_else(is.na(year), "", as.character(year)),
+      mk = dplyr::if_else(is.na(marker), dplyr::if_else(is.na(target_gene), "", as.character(target_gene)), as.character(marker)),
+      sf = dplyr::if_else(is.na(source_file), "", as.character(source_file)),
+      tag = paste0(materialSampleID,
+                   dplyr::if_else(yr != "" | mk != "" | sf != "",
+                                  paste0(" (",
+                                         paste(c(yr, mk, sf)[c(yr, mk, sf) != ""], collapse = ", "),
+                                         ")"),
+                                  ""))
+    ) %>%
+    dplyr::pull(tag) %>%
+    unique() %>%
+    sort()
+}
 
 ## ---- 2) UI ----
 ui <- fluidPage(
+  shinyjs::useShinyjs(),
   tags$head(tags$style(HTML("
+    /* ... keep your existing CSS ... */
+
+    /* Toggle style for ON state */
+    .btn-sara-on {
+    background-color: #0056b3 !important;
+    border-color: #0056b3 !important;
+    color: #ffffff !important;
+}
+  "))),
+  
+  tags$head(tags$style(HTML("
+    /* Map wrapper defines the positioning context */
+    #map_wrap { position: relative; }
+
     #floating_panel {
       background: rgba(255,255,255,0.92);
       border-radius: 6px;
       box-shadow: 0 2px 10px rgba(0,0,0,0.25);
       padding: 12px 14px;
-      max-height: 80vh;
+      max-height: calc(95vh - 30px);  /* keep it within map height */
       overflow-y: auto;
+      z-index: 999;
     }
+
+    /* Optional: keep tabs visually separate */
+    #tabs_below { margin-top: 8px; }
   "))),
   
-  leafletOutput("map", height = "100vh"),
+  # Map + floating panel in the SAME relative container
+  div(
+    id = "map_wrap",
+    leafletOutput("map", height = "95vh"),
+    
+    absolutePanel(
+      id="floating_panel",
+      fixed = FALSE,          # IMPORTANT: relative to #map_wrap now
+      draggable = TRUE,
+      top = 10, left = 70, width = 360,
+      
+      h4("Selected area"),
+      uiOutput("cell_summary"),
+      hr(),
+      
+      h4("Filter"),
+      selectInput("sel_year", "Year", choices = c("All","2022","2023","2024"), selected = "All"),
+      actionButton("SARA", "Species at Risk (SARA)", class = "btn btn-default"),
+      actionButton("AIS",  "Aquatic Invasive Species (AIS)",           class = "btn btn-default"),
+      
+      hr(),
+      h4("Species list"),
+      uiOutput("species_panel")
+    )
+  ),
   
-  absolutePanel(
-    id="floating_panel",
-    fixed=TRUE, draggable=TRUE,
-    top=10, left=70, width=360,
-    
-    h4("Selected area"),
-    uiOutput("cell_summary"),
-    hr(),
-    
-    h4("Filter"),
-    selectInput(
-      inputId = "sel_year",
-      label   = "Year",
-      choices = c("All", "2022", "2023", "2024"),
-      selected = "All"
-    ),
-    # uiOutput("taxa_buttons"), # keep if you want
-    h4(),
-    actionButton("SARA", "Species at Risk (SARA)"),
-    actionButton("AIS", "Aquatic Invasive Species"),
-    
-    hr(),
-    h4("Species list"),
-    uiOutput("species_panel")
+  # Tabs below the map (separate from map container)
+  tabsetPanel(
+    id = "tabs_below",
+    tabPanel("SARA Details: Schedule 1", DT::DTOutput("sara_details")),
+    tabPanel("Detections",   DT::DTOutput("detections_tbl"))
   )
 )
-
 
 
 ## ---- 3) Server ----
 
 server <- function(input, output, session){
+  
+  # --- SARA species set (character vector of scientific names) ---
+  sara_set <- reactive({
+    # adjust column name if yours differs
+    unique(na.omit(SARA_Clean$Scientific.Name))
+  })
+  
+  # --- toggle state: FALSE = no filter, TRUE = filter to SARA only ---
+  filter_sara_on <- reactiveVal(FALSE)
+  
+  observeEvent(input$SARA, {
+    new_state <- !isTRUE(filter_sara_on())
+    filter_sara_on(new_state)
+    
+    if (new_state) {
+      shinyjs::addClass("SARA", "btn-sara-on")
+    } else {
+      shinyjs::removeClass("SARA", "btn-sara-on")
+    }
+  })
+  
+  apply_sara_filter <- function(spp_vec) {
+    if (!isTRUE(filter_sara_on())) return(spp_vec)
+    intersect(spp_vec, sara_set())
+  }
+  
+  output$sara_details <- DT::renderDT({ 
+    if (!isTRUE(filter_sara_on())) {
+      return(DT::datatable(
+        data.frame(Message = "Click “Species at Risk (SARA) Schedule 1” to view SARA details."),
+        rownames = FALSE,
+        options = list(dom = "t")
+      ))
+    }
+    
+    det <- selected_detections()
+    if (is.null(det) || nrow(det) == 0) {
+      return(DT::datatable(
+        data.frame(Message = "No detections in the current selection."),
+        rownames = FALSE,
+        options = list(dom = "t")
+      ))
+    }
+    
+    # 1) remove geometry + keep only SARA spp
+    det <- det %>%
+      sf::st_drop_geometry() %>%
+      dplyr::mutate(scientificName = as.character(scientificName)) %>%
+      dplyr::filter(scientificName %in% sara_set())
+    
+    if (nrow(det) == 0) {
+      return(DT::datatable(
+        data.frame(Message = "No SARA Schedule 1 detections for this selection."),
+        rownames = FALSE,
+        options = list(dom = "t")
+      ))
+    }
+    
+    # 2) join Rating + Common name (adjust Common.Name to your real column)
+    det2 <- det %>%
+      dplyr::left_join(
+        SARA_Clean %>% dplyr::select(
+          Scientific.Name,
+          Common.Name,   
+          Rating
+        ),
+        by = c("scientificName" = "Scientific.Name")
+      )
+    
+    out <- det2 %>%
+      dplyr::group_by(scientificName, Rating) %>%
+      dplyr::summarise(
+        Common.Name = paste(sort(unique(na.omit(Common.Name))), collapse = " | "),
+        n_detections = dplyr::n(),
+        n_samples    = dplyr::n_distinct(materialSampleID),
+        samples      = paste(sort(unique(materialSampleID)), collapse = ", "),
+        files        = paste(sort(unique(na.omit(source_file))), collapse = ", "),
+        years        = paste(sort(unique(na.omit(year))), collapse = ", "),
+        markers      = paste(sort(unique(na.omit(marker))), collapse = ", "),
+        .groups = "drop"
+      ) %>%
+      dplyr::arrange(Rating, scientificName) %>%
+      dplyr::relocate(Common.Name, .after = scientificName)
+    
+    DT::datatable(
+      out,
+      rownames = FALSE,
+      options = list(pageLength = 10, scrollX = TRUE)
+    )
+  })
   
   `%||%` <- function(x, y) if (is.null(x)) y else x
   
@@ -1334,8 +1558,8 @@ server <- function(input, output, session){
     # COI: only exists for 2024 currently
     gridCOI <- grid_COI_by_year[[yr_map]]
     
-      proxy <- leafletProxy("map")
-      
+    proxy <- leafletProxy("map")
+    
     # Replace 12S layer
     proxy %>%
       clearGroup("Species detected by 12S") %>%
@@ -1379,6 +1603,55 @@ server <- function(input, output, session){
     suppressWarnings(as.integer(click$id))
   })
   
+  selected_detections <- reactive({
+    yr <- sel_year_chr()
+    
+    # start with the full detection points table
+    pts <- species_sf_all
+    if (yr != "All") pts <- pts %>% dplyr::filter(as.character(year) == yr)
+    
+    # A) drawn polygon selection takes priority
+    poly <- drawn_poly()
+    if (!is.null(poly)) {
+      inside <- pts[sf::st_within(pts, poly, sparse = FALSE), , drop = FALSE]
+      return(inside)
+    }
+    
+    # B) click selection (grid or polygon)
+    click <- input$map_shape_click
+    if (is.null(click) || is.null(click$id)) return(NULL)
+    
+    # polygon click case: use your polygon->species list table if you have detection rows by polygon;
+    # otherwise fallback to spatial within polygon geometry (recommended)
+    if (grepl("\\|\\|", click$id)) {
+      parts <- strsplit(click$id, "\\|\\|")[[1]]
+      p_type <- parts[1]; p_name <- parts[2]
+      
+      poly_sel <- all_polys_click %>%
+        dplyr::filter(site_type == p_type, site_name == p_name)
+      
+      if (nrow(poly_sel) == 0) return(NULL)
+      
+      inside <- pts[sf::st_within(pts, sf::st_geometry(poly_sel), sparse = FALSE), , drop = FALSE]
+      return(inside)
+    }
+    
+    # grid cell click: if you have a grid sf with cell_id polygons for the year, use it
+    cid <- suppressWarnings(as.integer(click$id))
+    if (is.na(cid)) return(NULL)
+    
+    # pick which grid geometry to use
+    yr_map <- if (yr == "All") "2024" else yr
+    grid_all_year <- grid_ALL_static  # or a year-specific grid if you have one
+    
+    cell_poly <- grid_all_year %>% dplyr::filter(cell_id == cid)
+    if (nrow(cell_poly) == 0) return(NULL)
+    
+    inside <- pts[sf::st_within(pts, sf::st_geometry(cell_poly), sparse = FALSE), , drop = FALSE]
+    inside
+  })
+
+  
   # ---- species panel (drawn polygon OR click) ----
   output$species_panel <- renderUI({
     
@@ -1403,12 +1676,20 @@ server <- function(input, output, session){
         dplyr::arrange(scientificName) %>%
         dplyr::pull(scientificName)
       
+      spp <- apply_sara_filter(spp)
+      
       if (length(spp) == 0) {
-        return(em("No species points fall inside the drawn polygon (with the current Year filter)."))
+        return(em(if (isTRUE(filter_sara_on()))
+          "No SARA Schedule 1 species fall inside the drawn polygon (with the current Year filter)."
+          else
+            "No species points fall inside the drawn polygon (with the current Year filter)."))
       }
       
       return(tagList(
-        strong(paste0("Drawn polygon selection (Year: ", yr, ")")),
+        strong(paste0(
+          "Drawn polygon selection (Year: ", yr, ")",
+          if (isTRUE(filter_sara_on())) " — SARA only" else ""
+        )),
         tags$br(),
         paste0("Points inside: ", nrow(inside)),
         tags$br(),
@@ -1458,6 +1739,7 @@ server <- function(input, output, session){
         dplyr::filter(site_type == p_type, site_name == p_name)
       
       spp <- if (nrow(row) == 0) character(0) else row$species[[1]]
+      spp <- apply_sara_filter(spp)
       if (length(spp) == 0) return(em("No species records in this MPA/AOI polygon."))
       
       return(tagList(
@@ -1496,6 +1778,8 @@ server <- function(input, output, session){
       dplyr::arrange(scientificName) %>%
       dplyr::pull(scientificName)
     
+    spp_total <- apply_sara_filter(spp_total)
+    
     cell12_tbl <- cell_12S_by_year[[yr_map]]
     spp_12S <- if (is.null(cell12_tbl)) character(0) else {
       cell12_tbl %>%
@@ -1505,6 +1789,8 @@ server <- function(input, output, session){
         dplyr::pull(scientificName)
     }
     
+    spp_12S   <- apply_sara_filter(spp_12S)
+    
     cellco_tbl <- cell_COI_by_year[[yr_map]]
     spp_COI <- if (is.null(cellco_tbl)) character(0) else {
       cellco_tbl %>%
@@ -1513,6 +1799,8 @@ server <- function(input, output, session){
         dplyr::arrange(scientificName) %>%
         dplyr::pull(scientificName)
     }
+    
+    spp_COI   <- apply_sara_filter(spp_COI)
     
     if (!show_total_grid && !show_12S_grid && !show_COI_grid) {
       return(em("Turn ON a richness layer (all markers / 12S / COI) to view the species list for grid cells."))
@@ -1553,6 +1841,36 @@ server <- function(input, output, session){
     panels
   })
   
+  output$detections_tbl <- DT::renderDT({
+    if (!isTRUE(filter_sara_on())) {
+      return(DT::datatable(
+        data.frame(Message = "Click “Species at Risk (SARA) Schedule 1” to view SARA detections."),
+        rownames = FALSE,
+        options = list(dom = "t")
+      ))
+    }
+    
+    det <- selected_detections()
+    if (is.null(det) || nrow(det) == 0) {
+      return(DT::datatable(data.frame(Message = "No detections in the current selection."), rownames = FALSE))
+    }
+    
+    det <- det %>%
+      dplyr::mutate(scientificName = as.character(scientificName)) %>%
+      dplyr::filter(scientificName %in% sara_set())
+    
+    det_show <- det %>%
+      sf::st_drop_geometry() %>%
+      dplyr::select(
+        scientificName, materialSampleID, eventDate, year, month,
+        marker, target_gene, organismQuantity, organismQuantityType,
+        sampleSizeValue, sampleSizeUnit, source_file, occurrenceID
+      ) %>%
+      dplyr::arrange(scientificName, year, materialSampleID)
+    
+    DT::datatable(det_show, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE))
+  })
+  
   # highlight selected cell (outline on top)
   observeEvent(input$map_shape_click, {
     cid <- clicked_cell()
@@ -1574,3 +1892,4 @@ server <- function(input, output, session){
 }
 
 shinyApp(ui, server)
+
