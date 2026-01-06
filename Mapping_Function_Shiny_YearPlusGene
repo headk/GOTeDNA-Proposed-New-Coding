@@ -1193,6 +1193,74 @@ sample_tag <- function(df) {
     sort()
 }
 
+##Fix grid heatmap by year for all markers 
+
+# If x is already an sfc column (most likely):
+grid_ALL_static <- richness_grid_all_poly %>%
+  rename(geometry = x) %>%
+  st_as_sf()
+
+# If CRS got lost, set it (use your real CRS; your app is 4326)
+st_crs(grid_ALL_static) <- 4326
+
+make_all_marker_grid_from_detections <- function(grid_template_sf, det_sf, year_val) {
+  stopifnot(inherits(grid_template_sf, "sf"))
+  stopifnot(inherits(det_sf, "sf"))
+  stopifnot("cell_id" %in% names(grid_template_sf))
+  
+  # Keep geometry + IDs only (prevents .x/.y join suffix issues)
+  grid_base <- grid_template_sf %>%
+    dplyr::select(cell_id, geometry)
+  
+  det_year <- det_sf
+  if (!identical(as.character(year_val), "All")) {
+    det_year <- det_year %>% dplyr::filter(as.character(year) == as.character(year_val))
+  }
+  
+  if (nrow(det_year) == 0) {
+    return(grid_base %>% dplyr::mutate(n_species_total = 0L, has_sampling = FALSE))
+  }
+  
+  # (Optional but recommended) project to a planar CRS before st_within
+  # Pick something appropriate for your area; 3347 works well for Canada
+  grid_planar <- sf::st_transform(grid_base, 3347)
+  det_planar  <- sf::st_transform(det_year, 3347)
+  
+  det_with_cell <- sf::st_join(
+    det_planar,
+    grid_planar %>% dplyr::select(cell_id),
+    join = sf::st_within,
+    left = FALSE
+  )
+  
+  counts <- det_with_cell %>%
+    sf::st_drop_geometry() %>%
+    dplyr::group_by(cell_id) %>%
+    dplyr::summarise(
+      n_species_total = dplyr::n_distinct(scientificName),
+      has_sampling    = TRUE,
+      .groups = "drop"
+    )
+  
+  out <- grid_planar %>%
+    dplyr::left_join(counts, by = "cell_id") %>%
+    dplyr::mutate(
+      has_sampling    = dplyr::coalesce(has_sampling, FALSE),
+      n_species_total = dplyr::coalesce(n_species_total, 0L)
+    )
+  
+  # return back in WGS84 for leaflet
+  sf::st_transform(out, 4326)
+}
+
+
+grid_ALL_by_year <- list(
+  "2022" = make_all_marker_grid_from_detections(grid_ALL_static, species_sf_all, "2022"),
+  "2023" = make_all_marker_grid_from_detections(grid_ALL_static, species_sf_all, "2023"),
+  "2024" = make_all_marker_grid_from_detections(grid_ALL_static, species_sf_all, "2024")
+)
+
+
 ## ---- 2) UI ----
 ui <- fluidPage(
   shinyjs::useShinyjs(),
@@ -1262,7 +1330,7 @@ ui <- fluidPage(
 
 ## ---- 3) Server ----
 
-server <- function(input, output, session){
+server <- function(input, output, session) {
   
   # --- SARA species set (character vector of scientific names) ---
   sara_set <- reactive({
@@ -1289,7 +1357,7 @@ server <- function(input, output, session){
     intersect(spp_vec, sara_set())
   }
   
-  output$sara_details <- DT::renderDT({ 
+  output$sara_details <- DT::renderDT({
     if (!isTRUE(filter_sara_on())) {
       return(DT::datatable(
         data.frame(Message = "Click “Species at Risk (SARA) Schedule 1” to view SARA details."),
@@ -1326,7 +1394,7 @@ server <- function(input, output, session){
       dplyr::left_join(
         SARA_Clean %>% dplyr::select(
           Scientific.Name,
-          Common.Name,   
+          Common.Name,
           Rating
         ),
         by = c("scientificName" = "Scientific.Name")
@@ -1335,7 +1403,7 @@ server <- function(input, output, session){
     out <- det2 %>%
       dplyr::group_by(scientificName, Rating) %>%
       dplyr::summarise(
-        Common.Name = paste(sort(unique(na.omit(Common.Name))), collapse = " | "),
+        Common.Name  = paste(sort(unique(na.omit(Common.Name))), collapse = " |OR| "),
         n_detections = dplyr::n(),
         n_samples    = dplyr::n_distinct(materialSampleID),
         samples      = paste(sort(unique(materialSampleID)), collapse = ", "),
@@ -1432,47 +1500,51 @@ server <- function(input, output, session){
   }, ignoreInit = TRUE)
   
   # ---- 1) Render the leaflet map ONCE ----
+  # ---- 1) Render the leaflet map ONCE ----
   output$map <- renderLeaflet({
+    
+    default_year <- "2024"
+    
+    grid12_start  <- grid_12S_by_year[[default_year]]
+    gridCOI_start <- grid_COI_by_year[[default_year]]
+    gridALL_start <- grid_ALL_by_year[[default_year]]
+    if (is.null(gridALL_start)) gridALL_start <- grid_ALL_static  # fallback
+    
     leaflet() %>%
       addProviderTiles(providers$CartoDB.Positron, group = "CartoDB Positron") %>%
       addProviderTiles(providers$Esri.OceanBasemap, group = "Esri Ocean Basemap") %>%
       addProviderTiles(providers$Esri.WorldImagery, group = "Esri World Imagery") %>%
       
-      # placeholders: start with 2024 layers (or your preference)
+      # --- richness layers at startup ---
       addPolygons(
-        data        = grid_12S_by_year[["2024"]],
+        data        = grid12_start,
         group       = "Species detected by 12S",
         layerId     = ~cell_id,
         fillColor   = ~pal_rich(n_species),
         fillOpacity = ~ifelse(has_sampling, 0.8, 0.04),
         color       = NA,
-        label       = ~ifelse(has_sampling,
-                              paste("12S richness:", n_species),
-                              "No sampling in this cell")
+        label       = ~ifelse(has_sampling, paste("12S richness:", n_species), "No sampling in this cell")
       ) %>%
       addPolygons(
-        data        = grid_COI_by_year[["2024"]],
+        data        = gridCOI_start,
         group       = "Species detected by COI",
         layerId     = ~cell_id,
         fillColor   = ~pal_rich(n_species),
         fillOpacity = ~ifelse(has_sampling, 0.8, 0.04),
         color       = NA,
-        label       = ~ifelse(has_sampling,
-                              paste("COI richness:", n_species),
-                              "No sampling in this cell")
+        label       = ~ifelse(has_sampling, paste("COI richness:", n_species), "No sampling in this cell")
       ) %>%
       addPolygons(
-        data        = grid_ALL_static,
+        data        = gridALL_start,
         group       = "Species detected by all markers",
         layerId     = ~cell_id,
         fillColor   = ~pal_rich(n_species_total),
-        fillOpacity = ~ifelse(has_sampling, 0.8, 0.04),  
+        fillOpacity = ~ifelse(has_sampling, 0.8, 0.04),
         color       = NA,
-        label       = ~ifelse(has_sampling,
-                              paste("Total richness:", n_species_total),
-                              "No sampling in this cell")
+        label       = ~ifelse(has_sampling, paste("Total richness:", n_species_total), "No sampling in this cell")
       ) %>%
       
+      # --- sampling points ---
       addCircleMarkers(
         data        = sampling_pts,
         group       = "Sampling points",
@@ -1489,6 +1561,7 @@ server <- function(input, output, session){
         )
       ) %>%
       
+      # --- MPA/AOI boundaries ---
       addPolygons(
         data        = all_polys_zones,
         group       = "MPA/AOI zone boundaries",
@@ -1498,11 +1571,10 @@ server <- function(input, output, session){
         opacity     = 0.8,
         options     = pathOptions(clickable = FALSE)
       ) %>%
-      
       addPolygons(
         data        = all_polys_click,
         group       = "Total species detected per MPA/AOI",
-        layerId     = ~paste(site_type, site_name, sep="||"),
+        layerId     = ~paste(site_type, site_name, sep = "||"),
         fillOpacity = 0.01,
         color       = "black",
         weight      = 2,
@@ -1510,32 +1582,31 @@ server <- function(input, output, session){
         popup       = ~site_name
       ) %>%
       
+      # --- legend / draw / controls ---
       addLegend(
         position = "bottomright",
         pal      = pal_rich,
-        values   = grid_ALL_static$n_species_total,
+        values   = gridALL_start$n_species_total,
         title    = "Species richness from eDNA",
         opacity  = 1
       ) %>%
-      
       addDrawToolbar(
-        targetGroup = "drawn",
-        polygonOptions = drawPolygonOptions(showArea = TRUE),
-        rectangleOptions = drawRectangleOptions(),
-        polylineOptions = FALSE,
-        markerOptions = FALSE,
-        circleOptions        = FALSE,  
-        circleMarkerOptions  = FALSE, 
-        editOptions = editToolbarOptions()
+        targetGroup         = "drawn",
+        polygonOptions      = drawPolygonOptions(showArea = TRUE),
+        rectangleOptions    = drawRectangleOptions(),
+        polylineOptions     = FALSE,
+        markerOptions       = FALSE,
+        circleOptions       = FALSE,
+        circleMarkerOptions = FALSE,
+        editOptions         = editToolbarOptions()
       ) %>%
-      
       addLayersControl(
         baseGroups = c("CartoDB Positron", "Esri Ocean Basemap", "Esri World Imagery"),
         overlayGroups = c(
+          "Total species detected per MPA/AOI",
           "Species detected by all markers",
           "Species detected by 12S",
           "Species detected by COI",
-          "Total species detected per MPA/AOI",
           "MPA/AOI zone boundaries",
           "Sampling points"
         ),
@@ -1545,22 +1616,21 @@ server <- function(input, output, session){
   
   # ---- 2) When the year changes, swap the richness layers ----
   observeEvent(sel_year_chr(), {
-    yr <- sel_year_chr()
     
-    # decide which year to show on the MAP
-    # If "All", pick your preferred default year for the grids (often latest)
+    yr <- sel_year_chr()
     yr_map <- if (yr == "All") "2024" else yr
     
-    # 12S: must exist
     grid12 <- grid_12S_by_year[[yr_map]]
     if (is.null(grid12)) grid12 <- grid_12S_by_year[["2024"]]
     
-    # COI: only exists for 2024 currently
     gridCOI <- grid_COI_by_year[[yr_map]]
+    
+    gridALL <- grid_ALL_by_year[[yr_map]]
+    if (is.null(gridALL)) gridALL <- grid_ALL_by_year[["2024"]]
+    if (is.null(gridALL)) gridALL <- grid_ALL_static
     
     proxy <- leafletProxy("map")
     
-    # Replace 12S layer
     proxy %>%
       clearGroup("Species detected by 12S") %>%
       addPolygons(
@@ -1570,13 +1640,10 @@ server <- function(input, output, session){
         fillColor   = ~pal_rich(n_species),
         fillOpacity = ~ifelse(has_sampling, 0.8, 0.04),
         color       = NA,
-        label       = ~ifelse(has_sampling,
-                              paste("12S richness:", n_species),
-                              "No sampling in this cell"),
+        label       = ~ifelse(has_sampling, paste("12S richness:", n_species), "No sampling in this cell"),
         highlightOptions = highlightOptions(weight = 2, bringToFront = TRUE)
       )
     
-    # Replace COI layer: only add if we have it for that year
     proxy %>% clearGroup("Species detected by COI")
     if (!is.null(gridCOI)) {
       proxy %>% addPolygons(
@@ -1586,15 +1653,26 @@ server <- function(input, output, session){
         fillColor   = ~pal_rich(n_species),
         fillOpacity = ~ifelse(has_sampling, 0.8, 0.04),
         color       = NA,
-        label       = ~ifelse(has_sampling,
-                              paste("COI richness:", n_species),
-                              "No data in this cell"),
+        label       = ~ifelse(has_sampling, paste("COI richness:", n_species), "No data in this cell"),
         highlightOptions = highlightOptions(weight = 2, bringToFront = TRUE)
       )
     }
     
-    # If you also have year-specific "all markers", swap that too here
+    proxy %>%
+      clearGroup("Species detected by all markers") %>%
+      addPolygons(
+        data        = gridALL,
+        group       = "Species detected by all markers",
+        layerId     = ~cell_id,
+        fillColor   = ~pal_rich(n_species_total),
+        fillOpacity = ~ifelse(has_sampling, 0.8, 0.04),
+        color       = NA,
+        label       = ~ifelse(has_sampling, paste("Total richness:", n_species_total), "No sampling in this cell"),
+        highlightOptions = highlightOptions(weight = 2, bringToFront = TRUE)
+      )
+    
   }, ignoreInit = TRUE)
+   
   
   # ---- clicked cell helper ----
   clicked_cell <- reactive({
@@ -1621,11 +1699,11 @@ server <- function(input, output, session){
     click <- input$map_shape_click
     if (is.null(click) || is.null(click$id)) return(NULL)
     
-    # polygon click case: use your polygon->species list table if you have detection rows by polygon;
-    # otherwise fallback to spatial within polygon geometry (recommended)
+    # polygon click case
     if (grepl("\\|\\|", click$id)) {
       parts <- strsplit(click$id, "\\|\\|")[[1]]
-      p_type <- parts[1]; p_name <- parts[2]
+      p_type <- parts[1]
+      p_name <- parts[2]
       
       poly_sel <- all_polys_click %>%
         dplyr::filter(site_type == p_type, site_name == p_name)
@@ -1636,11 +1714,10 @@ server <- function(input, output, session){
       return(inside)
     }
     
-    # grid cell click: if you have a grid sf with cell_id polygons for the year, use it
+    # grid cell click
     cid <- suppressWarnings(as.integer(click$id))
     if (is.na(cid)) return(NULL)
     
-    # pick which grid geometry to use
     yr_map <- if (yr == "All") "2024" else yr
     grid_all_year <- grid_ALL_static  # or a year-specific grid if you have one
     
@@ -1650,21 +1727,16 @@ server <- function(input, output, session){
     inside <- pts[sf::st_within(pts, sf::st_geometry(cell_poly), sparse = FALSE), , drop = FALSE]
     inside
   })
-
   
   # ---- species panel (drawn polygon OR click) ----
   output$species_panel <- renderUI({
-    
     yr <- sel_year_chr()
     
     # A) drawn polygon selection
     poly <- drawn_poly()
     if (!is.null(poly)) {
       
-      # choose which points table drives the list:
-      # Use species_sf_all (sf points with scientificName, year, marker/target_gene)
       pts <- species_sf_all
-      
       if (yr != "All") {
         pts <- pts %>% dplyr::filter(as.character(year) == yr)
       }
@@ -1679,10 +1751,12 @@ server <- function(input, output, session){
       spp <- apply_sara_filter(spp)
       
       if (length(spp) == 0) {
-        return(em(if (isTRUE(filter_sara_on()))
-          "No SARA Schedule 1 species fall inside the drawn polygon (with the current Year filter)."
+        return(em(
+          if (isTRUE(filter_sara_on()))
+            "No SARA Schedule 1 species fall inside the drawn polygon (with the current Year filter)."
           else
-            "No species points fall inside the drawn polygon (with the current Year filter)."))
+            "No species points fall inside the drawn polygon (with the current Year filter)."
+        ))
       }
       
       return(tagList(
@@ -1704,7 +1778,7 @@ server <- function(input, output, session){
       ))
     }
     
-    # B) click-based logic (your existing approach)
+    # B) click-based logic
     click <- input$map_shape_click
     if (is.null(click) || is.null(click$id)) {
       return(em("Click a grid cell or an MPA/AOI outline, or draw a polygon."))
@@ -1726,7 +1800,6 @@ server <- function(input, output, session){
     
     # polygon click
     if (grepl("\\|\\|", click$id)) {
-      
       if (!show_poly_total) {
         return(em("Turn ON “Total species detected per MPA/AOI” to view polygon species lists."))
       }
@@ -1740,6 +1813,7 @@ server <- function(input, output, session){
       
       spp <- if (nrow(row) == 0) character(0) else row$species[[1]]
       spp <- apply_sara_filter(spp)
+      
       if (length(spp) == 0) return(em("No species records in this MPA/AOI polygon."))
       
       return(tagList(
@@ -1758,87 +1832,74 @@ server <- function(input, output, session){
     cid <- suppressWarnings(as.integer(click$id))
     if (is.na(cid)) return(em("Click a grid cell or an MPA/AOI outline."))
     
-    # IMPORTANT: year-aware species tables
-    # If you have cell_species_2022_12S / cell_species_2023_12S, store them in lists like the grids:
-    cell_12S_by_year <- list(
-      "2022" = cell_species_2022_12S,
-      "2023" = cell_species_2023_12S,
-      "2024" = cell_species_2024_12S
-    )
-    cell_COI_by_year <- list(
-      "2024" = cell_species_2024_COI
-    )
+    # year-aware species tables
+    det <- selected_detections() # already year-filtered + selection-filtered
+    if (is.null(det) || nrow(det) == 0) {
+      return(em("Click a grid cell or an MPA/AOI outline, or draw a polygon."))
+    }
     
-    yr_map <- if (yr == "All") "2024" else yr
+    det0 <- det %>%
+      sf::st_drop_geometry() %>%
+      dplyr::mutate(scientificName = as.character(scientificName))
     
-    spp_total <- cell_species_all %>%
-      dplyr::filter(cell_id == cid) %>%
-      { if (yr == "All") . else dplyr::filter(., as.character(year) == yr) } %>%
+    # apply SARA toggle
+    if (isTRUE(filter_sara_on())) {
+      det0 <- det0 %>% dplyr::filter(scientificName %in% sara_set())
+    }
+    
+    if (nrow(det0) == 0) {
+      return(em("No SARA species for this selection (with the current Year filter)."))
+    }
+    
+    # layer toggles
+    if (!show_total_grid && !show_12S_grid && !show_COI_grid && !show_poly_total) {
+      return(em("Turn ON a richness layer (all markers / 12S / COI) or the polygon layer to view species lists."))
+    }
+    
+    spp_total <- det0 %>%
       dplyr::distinct(scientificName) %>%
-      dplyr::arrange(scientificName) %>%
       dplyr::pull(scientificName)
     
-    spp_total <- apply_sara_filter(spp_total)
+    spp_12S <- det0 %>%
+      dplyr::filter(marker == "12S" | target_gene == "12S") %>%
+      dplyr::distinct(scientificName) %>%
+      dplyr::pull(scientificName)
     
-    cell12_tbl <- cell_12S_by_year[[yr_map]]
-    spp_12S <- if (is.null(cell12_tbl)) character(0) else {
-      cell12_tbl %>%
-        dplyr::filter(cell_id == cid) %>%
-        dplyr::distinct(scientificName) %>%
-        dplyr::arrange(scientificName) %>%
-        dplyr::pull(scientificName)
-    }
+    spp_COI <- det0 %>%
+      dplyr::filter(marker == "COI" | target_gene == "COI") %>%
+      dplyr::distinct(scientificName) %>%
+      dplyr::pull(scientificName)
     
-    spp_12S   <- apply_sara_filter(spp_12S)
-    
-    cellco_tbl <- cell_COI_by_year[[yr_map]]
-    spp_COI <- if (is.null(cellco_tbl)) character(0) else {
-      cellco_tbl %>%
-        dplyr::filter(cell_id == cid) %>%
-        dplyr::distinct(scientificName) %>%
-        dplyr::arrange(scientificName) %>%
-        dplyr::pull(scientificName)
-    }
-    
-    spp_COI   <- apply_sara_filter(spp_COI)
-    
-    if (!show_total_grid && !show_12S_grid && !show_COI_grid) {
-      return(em("Turn ON a richness layer (all markers / 12S / COI) to view the species list for grid cells."))
-    }
-    
-    panels <- tagList()
-    
-    if (show_total_grid) {
-      panels <- tagAppendChildren(
-        panels,
-        tags$details(open = TRUE,
-                     tags$summary(strong(paste0("Total unique species (", length(spp_total), ")"))),
-                     make_list(spp_total)
+    tagList(
+      strong(paste0(
+        "Selection (Year: ", yr, ")",
+        if (isTRUE(filter_sara_on())) " — SARA only" else ""
+      )),
+      tags$br(),
+      paste0("Detections in selection: ", nrow(det0)),
+      tags$hr(),
+      
+      if (show_total_grid || show_poly_total)
+        tags$details(
+          open = TRUE,
+          tags$summary(strong(paste0("Total unique species (", length(unique(spp_total)), ")"))),
+          make_list(spp_total)
+        ),
+      
+      if (show_12S_grid)
+        tags$details(
+          open = !(show_total_grid || show_poly_total),
+          tags$summary(strong(paste0("12S species (", length(unique(spp_12S)), ")"))),
+          make_list(spp_12S)
+        ),
+      
+      if (show_COI_grid)
+        tags$details(
+          open = FALSE,
+          tags$summary(strong(paste0("COI species (", length(unique(spp_COI)), ")"))),
+          make_list(spp_COI)
         )
-      )
-    }
-    
-    if (show_12S_grid) {
-      panels <- tagAppendChildren(
-        panels,
-        tags$details(open = !show_total_grid,
-                     tags$summary(strong(paste0("12S species (", length(spp_12S), ")"))),
-                     make_list(spp_12S)
-        )
-      )
-    }
-    
-    if (show_COI_grid) {
-      panels <- tagAppendChildren(
-        panels,
-        tags$details(open = (!show_total_grid && !show_12S_grid),
-                     tags$summary(strong(paste0("COI species (", length(spp_COI), ")"))),
-                     make_list(spp_COI)
-        )
-      )
-    }
-    
-    panels
+    )
   })
   
   output$detections_tbl <- DT::renderDT({
@@ -1852,7 +1913,10 @@ server <- function(input, output, session){
     
     det <- selected_detections()
     if (is.null(det) || nrow(det) == 0) {
-      return(DT::datatable(data.frame(Message = "No detections in the current selection."), rownames = FALSE))
+      return(DT::datatable(
+        data.frame(Message = "No detections in the current selection."),
+        rownames = FALSE
+      ))
     }
     
     det <- det %>%
@@ -1868,28 +1932,30 @@ server <- function(input, output, session){
       ) %>%
       dplyr::arrange(scientificName, year, materialSampleID)
     
-    DT::datatable(det_show, rownames = FALSE, options = list(pageLength = 15, scrollX = TRUE))
+    DT::datatable(
+      det_show,
+      rownames = FALSE,
+      options = list(pageLength = 15, scrollX = TRUE)
+    )
   })
   
   # highlight selected cell (outline on top)
   observeEvent(input$map_shape_click, {
     cid <- clicked_cell()
-    if (is.na(cid)) return(NULL)  # <- stops crash when click$id is NULL
+    if (is.na(cid)) return(NULL)  # stops crash when click$id is NULL
     
     sel <- richness_grid_all_poly %>% filter(cell_id == cid)
     
     leafletProxy("map") %>%
       clearGroup("selected_cell") %>%
       addPolygons(
-        data = sel,
-        group = "selected_cell",
+        data        = sel,
+        group       = "selected_cell",
         fillOpacity = 0,
-        color = "white",
-        weight = 3
+        color       = "white",
+        weight      = 3
       )
   }, ignoreInit = TRUE)
-  
 }
 
 shinyApp(ui, server)
-
