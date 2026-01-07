@@ -1385,12 +1385,54 @@ ui <- fluidPage(
 
   font-size: 16px !important;     
   line-height: 1.4 !important;
-  font-weight: 600 !important;
+  font-weight: 400 !important;
 
   background: rgba(255,255,255,0.92) !important;
   border-radius: 6px !important;
   box-shadow: 0 2px 10px rgba(0,0,0,0.25) !important;
   border: 1px solid rgba(0,0,0,0.15) !important;
+}
+/* === protocol cards (GOTeDNA palette) === */
+.protocol-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.protocol-field-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #0b2a2a;                
+}
+
+.protocol-card {
+  background: #EAF7FB;            /* pastel baby blue */
+  border: 1px solid rgba(49, 180, 219, 0.75); /* deepskyblue border */
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 38px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0b2a2a;                 /* readable dark text */
+  box-shadow: 0 1px 6px rgba(44, 98, 203, 0.10);
+  transition: background-color 250ms ease, border-color 250ms ease, box-shadow 250ms ease, color 250ms ease;
+}
+
+/* changed card = darker */
+.protocol-card.changed {
+  background: #9ADBE8;            /* royalblue (DARKEST = changed) */
+  border-color: #2f9ae6;          /* dodgerblue border */
+  color: #0b2a2a;                 
+  box-shadow: 0 0 0 3px rgba(32, 224, 98, 0.35); /* spring green glow */
+}
+
+/* optional: for missing values */
+.protocol-card.na {
+  background: #EAF7FB;            /* pastel baby blue */
+  border-color: #31b4db;          /* deepskyblue */
+  color: #0b2a2a;
+  opacity: 0.9;
 }
 
     "))
@@ -1529,6 +1571,24 @@ server <- function(input, output, session){
       )
   })
   
+  # --- base protocol per Location (the "starting choice") ---
+  base_protocol <- reactiveVal(NULL)
+  
+  # whenever Location changes, set base protocol to the first available protocol for that location
+  observeEvent(list(meta_all(), input$req_location), {
+    df <- meta_all()
+    req(input$req_location)
+    
+    prots <- df %>%
+      dplyr::filter(Location == input$req_location) %>%
+      dplyr::filter(!is.na(ProtocolID), ProtocolID != "") %>%
+      dplyr::distinct(ProtocolID) %>%
+      dplyr::arrange(ProtocolID) %>%
+      dplyr::pull(ProtocolID)
+    
+    base_protocol(if (length(prots)) as.character(prots[[1]]) else NULL)
+  }, ignoreInit = FALSE)
+  
   # live details card
   output$protocol_details <- renderUI({
     df <- selected_protocol_rows()
@@ -1549,7 +1609,7 @@ server <- function(input, output, session){
       "Bioinformatics" = "Bioinformatics"
     )
     
-    # compute display values
+    # --- current values for the selected protocol ---
     vals <- lapply(names(field_map), function(lbl) {
       col <- field_map[[lbl]]
       if (!col %in% names(df)) return(NA_character_)
@@ -1557,48 +1617,72 @@ server <- function(input, output, session){
     })
     names(vals) <- names(field_map)
     
+    # --- base values (compare against base_protocol for this Location) ---
+    base_vals <- setNames(as.list(rep(NA_character_, length(field_map))), names(field_map))
+    
+    bp <- base_protocol()
+    if (!is.null(bp) && nzchar(bp)) {
+      df_base <- meta_all() %>%
+        dplyr::filter(
+          Location   == input$req_location,
+          ProtocolID == bp
+        )
+      
+      if (nrow(df_base) > 0) {
+        base_vals <- lapply(names(field_map), function(lbl) {
+          col <- field_map[[lbl]]
+          if (!col %in% names(df_base)) return(NA_character_)
+          pick_display(df_base[[col]])
+        })
+        names(base_vals) <- names(field_map)
+      }
+    }
+    
+    # --- compute which cards changed vs base ---
+    changed_flags <- lapply(names(field_map), function(lbl) {
+      cur <- vals[[lbl]]
+      bas <- base_vals[[lbl]]
+      
+      cur <- ifelse(is.na(cur), "", as.character(cur))
+      bas <- ifelse(is.na(bas), "", as.character(bas))
+      
+      nzchar(trimws(cur)) && nzchar(trimws(bas)) && !identical(trimws(cur), trimws(bas))
+    })
+    names(changed_flags) <- names(field_map)
+    
+    # --- UI ---
     tags$div(
       style = "margin-top:12px;",
       
-      # Header
       tags$div(
-        style = "font-weight:600; font-size:16px; margin-bottom:10px;",
-        paste0("Selected: ", input$req_location, " | ProtocolID: ", input$req_protocol)
+        style="font-weight:600; font-size:16px; margin-bottom:10px;",
+        "Methods"
       ),
       
-      # Cards grid
       tags$div(
-        style = "
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 12px;
-      ",
+        class = "protocol-grid",
         
         lapply(names(vals), function(lbl) {
+          new_v <- ifelse(is.na(vals[[lbl]]), "", as.character(vals[[lbl]]))
+          is_na <- !nzchar(trimws(new_v))
+          changed <- isTRUE(changed_flags[[lbl]])
+          
           tags$div(
-            # one field (label + card)
+            tags$div(class = "protocol-field-title", lbl),
             tags$div(
-              style = "font-size:13px; font-weight:600; margin-bottom:4px;",
-              lbl
-            ),
-            tags$div(
-              style = "
-              background: rgba(255,255,255,0.9);
-              border: 1px solid rgba(0,0,0,0.15);
-              border-radius: 6px;
-              padding: 8px 10px;
-              min-height: 36px;
-              font-size: 14px;
-            ",
-              ifelse(is.na(vals[[lbl]]), "—", vals[[lbl]])
+              class = paste(
+                "protocol-card",
+                if (changed) "changed",
+                if (is_na) "na"
+              ),
+              if (is_na) "—" else new_v
             )
           )
         })
       )
     )
   })
-  
-  
+
   
   # --- SARA species set ---
   sara_set <- reactive(unique(na.omit(SARA_Clean$Scientific.Name)))
