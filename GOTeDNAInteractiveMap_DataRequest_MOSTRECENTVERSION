@@ -1435,6 +1435,23 @@ ui <- fluidPage(
   opacity: 0.9;
 }
 
+/* === filter button grid + equal-size buttons === */
+.filter-btn-grid{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);  /* 3 buttons per row (9 = 3 rows) */
+  gap: 8px;
+}
+
+.filter-btn{
+  width: 100% !important;   /* all same width within grid cell */
+  height: 70px !important;  /* all same height */
+  padding: 6px 10px !important;
+  font-size: 15px !important;
+  white-space: nowrap;      /* prevent wrapping */
+  overflow: hidden;
+  text-overflow: ellipsis;  /* ... if label too long */
+}
+
     "))
   ),
   
@@ -1479,8 +1496,20 @@ ui <- fluidPage(
       
       h4("Filter"),
       selectInput("sel_year", "Year", choices = c("All","2022","2023","2024"), selected = "All"),
-      actionButton("SARA", "Species at Risk (SARA)", class = "btn btn-default"),
-      actionButton("AIS",  "Aquatic Invasive Species (AIS)", class = "btn btn-default"),
+      
+      h4("Group"),
+      div(
+        class = "filter-btn-grid",
+        actionButton("total_fish",       "Fishes",                     class = "btn btn-default filter-btn"),
+        actionButton("total_mammals",    "Mammals",                    class = "btn btn-default filter-btn"),
+        actionButton("total_reptiles",   "Reptiles",                   class = "btn btn-default filter-btn"),
+        actionButton("total_birds",      "Birds",                      class = "btn btn-default filter-btn"),
+        actionButton("total_molluscs",   "Molluscs",                   class = "btn btn-default filter-btn"),
+        actionButton("total_arthropods", "Arthropods",                 class = "btn btn-default filter-btn"),
+        actionButton("total_plants",     "Plants",                     class = "btn btn-default filter-btn"),
+        actionButton("SARA",             "SARA",                       class = "btn btn-default filter-btn"),
+        actionButton("AIS",              "AIS",                        class = "btn btn-default filter-btn")
+      ),
       
       hr(),
       h4("Species list"),
