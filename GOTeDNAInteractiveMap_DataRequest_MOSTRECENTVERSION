@@ -2053,10 +2053,10 @@ server <- function(input, output, session){
       addLayersControl(
         baseGroups = c("CartoDB Positron", "Esri Ocean Basemap", "Esri World Imagery"),
         overlayGroups = c(
+          "Total species detected per MPA/AOI",
           "Species detected by all markers",
           "Species detected by 12S",
           "Species detected by COI",
-          "Total species detected per MPA/AOI",
           "MPA/AOI zone boundaries",
           "Sampling points"
         ),
