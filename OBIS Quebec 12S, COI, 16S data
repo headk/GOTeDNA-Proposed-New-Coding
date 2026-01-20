@@ -1,0 +1,2427 @@
+#Code for Protocol 6 Quebec metabarcoding COI + 16s
+
+##Example code for preparing three csv files (Occurrence, DNA Derived Data, extendedMeasurementOrFact) for OBIS submission from the GOTeDNA Sample Template
+#This code has been prepared for the dataset "DFO Monthly GRDI Survey eDNA metabarcoding (COI) in the Bay of Fundy 2019-2021", which is publicly available in OBIS: https://obis.org/dataset/83040ea6-0e87-4e4e-937d-1b826349c464
+
+#Install packages and Load libraries (remove hashtag to install)
+
+#install.packages("dplyr")
+#install.packages("stringr")
+#install.packages("purrr")
+#install.packages("tibble")
+#install.packages("worrms")
+#install.packages("openxlsx")
+#install.packages("lubridate")
+#install.packages("tidyr")
+#install.packages("devtools")
+#devtools::install_github("iobis/obistools")
+#install.packages("Hmisc")
+#install.paclages("Biostrings")
+
+library(dplyr)
+library(stringr)
+library(purrr)
+library(tibble)
+library(worrms)
+library(openxlsx)
+library(lubridate)
+library(tidyr)
+library(obistools)
+library(Hmisc)
+library(Biostrings)
+
+#Set working directory to the file location of the completed GOTeDNA Sample Template v.2.2
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")                    #edit to the location of your folder
+
+#Pull each metadata and metabarcoding data sheet
+GOT <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metadata")
+GOT_metabar <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metabarcoding data")
+
+#Standardize materialSampleID values between sheets, in case there are slight formatting differences
+
+GOT <- GOT %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+GOT_metabar <- GOT_metabar %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+# If multiple datasets are in the template, remove hashtags to filter for select owner contacts, locations, target genes, etc. specific to each data sheet
+
+#GOT_f <- GOT %>%
+#  filter(
+#    ownerContact == "anais.lacoursiere@dfo-mpo.gc.ca",
+#   decimalLatitude  >= 44.80 & decimalLatitude <= 45.27,   #Filter for coordinates between Bangor and St. John (to exclude PEI data)
+#   decimalLongitude >= -68.78 & decimalLongitude <= -66.07
+#)
+
+# Filter the metabarcoding dataset
+GOT_metabar_f <- GOT_metabar %>%
+  filter(
+    target_gene == "COI",
+  )
+
+
+#Combine the two data sheets into one by matching columns by the materialSampleID (sample name)
+GOT_joined <- GOT %>%
+  left_join(
+    GOT_metabar_f,
+    by = "materialSampleID",
+    relationship = "many-to-many"
+  )
+
+#Fix the values in eventDate - This code standardizes dates in case they change format from excel after being opened in R
+
+GOT_joined <- GOT_joined %>%
+  mutate(
+    # Always work from a character version
+    eventDate_chr = as.character(eventDate),
+
+    # Try to interpret as numeric (Excel serial)
+    eventDate_num = suppressWarnings(as.numeric(eventDate_chr)),
+
+    # Fix 2-digit year dates like 21/8/19 -> 21/8/2019
+    eventDate_chr_2y = if_else(
+      str_detect(eventDate_chr, "^\\d{1,2}/\\d{1,2}/\\d{2}$"),
+      sub("(\\d{1,2}/\\d{1,2}/)(\\d{2})$", "\\120\\2", eventDate_chr),
+      NA_character_
+    ),
+
+    eventDate = case_when(
+      # 1) Excel numeric serials (42293 etc.)
+      !is.na(eventDate_num) ~ as.Date(eventDate_num, origin = "1899-12-30"),
+
+      # 2) dd/mm/yy we just expanded to dd/mm/20yy
+      !is.na(eventDate_chr_2y) ~ as.Date(eventDate_chr_2y, format = "%d/%m/%Y"),
+
+      # 3) Normal dd/mm/yyyy strings
+      TRUE ~ as.Date(eventDate_chr, format = "%d/%m/%Y")
+    )
+  ) %>%
+  select(-eventDate_chr, -eventDate_num, -eventDate_chr_2y)
+
+
+# Create unique event and occurrence IDs for samples containing coordinates
+
+GOT_joined <- GOT_joined %>%
+  # 1) Remove any rows that are controls (controlType not NA/empty)
+  filter(is.na(controlType) | controlType == "") %>%
+
+  # 2) Drop any rows missing coordinates
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude)
+  ) %>%
+
+  # 3) Work within each original eventID.x
+  group_by(eventID.x) %>%
+  mutate(
+    row_suffix = row_number(),
+
+    # eventID for every remaining row (all have coords now)
+    eventID = paste0(eventID.x, "-", row_suffix),
+
+    # occurrenceID for every remaining row (present + absent)
+    occurrenceID = if_else(
+      is.na(occurrenceID),
+      paste0("DFO-QBC-COI:", materialSampleID, "-", row_suffix),
+      paste0(occurrenceID, "-", row_suffix)
+    )
+  ) %>%
+  ungroup() %>%
+  select(-row_suffix)
+
+
+#Use this code if you have values for seq_run_id and lib_id in a separate file (obtain this information from the group that sequenced your data)
+#This code will likely need to be edited dependent on how the separate file is formatted, I will keep it commented out for now for simplicity
+
+#map_raw <- read.csv("OBIS information(COI).csv", stringsAsFactors = FALSE)
+
+#map_long <- bind_rows(
+#  map_raw %>%
+#    select(seq_run_id, lib_id),
+#  map_raw %>%
+#    select(seq_run_id = seq_run_id.1,
+#           lib_id    = lib_id.1)
+#) %>%
+#  # drop completely empty rows
+#  filter(!is.na(lib_id) & lib_id != "")
+
+#map_clean <- map_long %>%
+#  # remove ENEG controls if you *don’t* want them mapped
+#  filter(!str_detect(lib_id, "ENEG")) %>%
+#  mutate(
+#    # take digits from start of string
+#    materialSampleID = str_extract(lib_id, "^[0-9]+"),
+#    materialSampleID = as.character(materialSampleID)   # keep as character
+#  ) %>%
+#  distinct(materialSampleID, .keep_all = TRUE)
+
+#map_clean <- map_clean %>%
+#  # treat blanks as NA
+#  mutate(seq_run_id = na_if(seq_run_id, "")) %>%
+#  # fill seq_run_id down within the whole table
+#  fill(seq_run_id)
+
+
+#Set up the Occurrence core dataframe
+#Edit details of each column name specific to your metadata (see glossary in SOP)
+#If including seq_run_id and lib_id from above, remove hashtags at the bottom of this script
+
+occurrence <- GOT_joined %>%
+  mutate(
+    materialSampleID = as.character(materialSampleID),
+    protocol_ID = protocol_ID.x,
+    protocolVersion = protocolVersion.x,
+    project_contact = ownerContact,
+    bibliographicCitation = bibliographicCitation,
+    basisOfRecord = "MaterialSample",
+    locationID = samplingStation,
+    materialSampleID = materialSampleID,
+    samp_name = materialSampleID,
+    technical_rep_id = "1",
+    recordedBy = recordedBy,
+    geo_loc_name = "Canada: Quebec, Gulf of St. Lawrence",
+    nameAccordingTo = "WoRMS",
+    country = "Canada",
+    datasetID = "DFO-QBC-COI",
+    decimalLatitude = decimalLatitude,
+    decimalLongitude = decimalLongitude,
+    minimumDepthInMeters = sampleDepth,
+    maximumDepthInMeters = sampleDepth,
+    samp_collect_device = case_when(
+      protocolVersion.x == 1 ~ "bottle",
+      protocolVersion.x == 2 ~ "Niskin bottle",
+    ),
+    samp_size = "2",
+    samp_size_unit = "L",
+    size_frac = case_when(
+      protocolVersion.x == 1 ~ "1.5",
+      protocolVersion.x == 2 ~ "1.2",
+    ),
+    filter_material = "glass fiber",
+    filter_name = NA_character_,
+    filtrationType = "Vacuum",
+    samp_store_sol = case_when(
+      protocolVersion.x == 1 ~ "silica beads",
+      protocolVersion.x == 2 ~ "no buffer",
+    ),
+    samp_store_temp = case_when(
+      protocolVersion.x == 1 ~ NA_character_,
+      protocolVersion.x == 2 ~ "-20",
+    ),
+    nucl_acid_ext = "PON_020302_V01",
+    nucl_acid_ext_kit = "DNeasy Power Water",
+    eventDate = eventDate,
+    occurrenceID = occurrenceID,
+    occurrenceStatus = case_when(
+      organismQuantity > 0 ~ "present",
+      organismQuantity == 0 ~ "absent",
+      TRUE ~ NA_character_
+    ),
+    language = "en",
+    materialSampleID = materialSampleID,
+    month = month(eventDate),
+    bibliographicCitation = bibliographicCitation,
+    year = year(eventDate),
+    scientificNameAuthorship = ownerContact,
+    occurrenceID = occurrenceID,
+    samp_name = materialSampleID,
+    project_name = "Quebec: Gulf of St. Lawrence 2020-2022",
+    scientificName = scientificName,
+    env_broad_scale = "marine biome (ENVO:00000447)",
+    env_local_scale = case_when(
+      protocolVersion.x == 1 ~ "water surface (ENVO:01001191)",
+      protocolVersion.x == 2 ~ "marine pelagic zone (ENVO:00000208)",
+    ),
+    env_medium = "sea water (ENVO:00002149)",
+    targetTaxonomicAssay = "eukaryotes",
+    assay_name = "COI-1 (metabarcoding)",
+    assay_type = "metabarcoding",
+    target_gene = target_gene,
+    target_subfragment = target_subfragment,
+    seq_meth = "Illumina MiSeq [OBI_0002003]",
+    seq_kit = NA_character_,
+    ref_db = "NCBI-nt",
+    otu_db = "Maurice Lamontagne Institute metabarcoding pipeline v 0.1.0",
+    otu_seq_comp_appr = "blastn;2.12.0+",
+    pcr_primer_forward = "GGWACWGGWTGAACWGTWTAYCCYCC",
+    pcr_primer_reverse = "TAIACYTCIGGRTGICCRAARAAYCA",
+    pcr_primer_name_forward = "mlCOIintF",
+    pcr_primer_name_reverse = "jgHCO2198",
+    pcr_primer_reference = "http://www.frontiersinzoology.com/content/10/1/34 | doi: 10.1111/1755-0998.12138 ",
+    identificationRemarks = identificationRemarks,
+    checkls_ver = "1.0.2",
+    sampleSizeValue = sampleSizeValue,
+    sampleSizeUnit = sampleSizeUnit,
+    filter_passive_active_0_1 = "1",
+    samp_category = "sample",
+    project_id = "DFO-QBC-COI",
+    pcr_0_1 = "1",
+    LClabel = NA_character_
+  )
+#%>%
+#  filter(
+#    !is.na(minimumDepthInMeters),
+#    !is.na(maximumDepthInMeters),
+#    !is.na(target_gene),
+#    !is.na(scientificName)
+    #  ) %>%
+    #  left_join(
+    #    map_clean, by = "materialSampleID"
+#  )
+
+#Look up AphiaID (taxonID) from WoRMS by ScientificName
+
+species_lookup <- occurrence %>%
+  distinct(scientificName) %>%
+  mutate(
+    taxonID = map_int(
+      scientificName,
+      ~ {
+        # Keep NAs as NAs
+        if (is.na(.x) || .x == "") return(NA_integer_)
+
+        id <- tryCatch(
+          wm_name2id(.x, marine_only = FALSE),
+          error = function(e) NA
+        )
+
+        if (is.null(id) || length(id) == 0 || is.na(id[1])) {
+          NA_integer_
+        } else {
+          as.integer(id[1])
+        }
+      }
+    )
+  )
+
+# Join taxonID into occurrence, but DO NOT drop rows with no match
+occurrence <- occurrence %>%
+  select(-any_of(c("taxonID", "scientificNameID",
+                   "kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "aphiaID"))) %>%  # we'll re-create these
+  left_join(species_lookup, by = "scientificName") %>%
+  mutate(
+    # optional helper flag: which rows had a WoRMS match?
+    worms_match = !is.na(taxonID),
+    # keep AphiaID explicitly if you want it separate from taxonID
+    aphiaID = taxonID
+  )
+
+
+# Build a taxonomy lookup for each unique non-NA AphiaID
+
+# Helper to pull a rank from wm_classification()
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank", "scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  rec     <- tryCatch(wm_record(id),        error = function(e) NULL)
+
+  tibble(
+    taxonID           = id,
+    scientificNameID  = if (!is.null(rec) && "lsid" %in% names(rec))
+      rec$lsid else NA_character_,
+    kingdom           = .rank_val(classif, "Kingdom"),
+    phylum            = .rank_val(classif, "Phylum"),
+    class             = .rank_val(classif, "Class"),
+    order             = .rank_val(classif, "Order"),
+    family            = .rank_val(classif, "Family"),
+    genus             = .rank_val(classif, "Genus")
+  )
+}
+
+unique_ids <- occurrence$taxonID %>%
+  unique() %>%
+  purrr::discard(is.na)
+
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+
+#Join WoRMS taxonomy back to occurrence
+
+occurrence <- occurrence %>%
+  select(-any_of(c("kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "scientificNameID"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID")
+
+
+
+#DNA derived data extension: Link DNA sequences from otu_df
+
+dna_df <- occurrence
+
+###########################################
+#Run Quality Control checks
+#NOTE: problems in quality control checks likely occur from repeating occurrenceIDs resulting from empty values at the bottom of a dataframe (happens if there is not a clean merge between the GOTeDNA "sample metadata" and "sample metabarcoding" sheets)
+
+occur <- occurrence #change name of dataframe in case quality control checks fail and you would like to view the original dataframe for problems (Using the code: View("occurrence") )
+
+occur2 <- occur %>%
+  mutate(
+    decimalLongitude = as.character(decimalLongitude),
+    decimalLatitude  = as.character(decimalLatitude),
+
+    # common cleanup (commas, extra spaces)
+    decimalLongitude = str_replace_all(decimalLongitude, ",", ".") %>% str_trim(),
+    decimalLatitude  = str_replace_all(decimalLatitude,  ",", ".") %>% str_trim(),
+
+    # parse to numeric (non-numeric becomes NA)
+    decimalLongitude = readr::parse_number(decimalLongitude),
+    decimalLatitude  = readr::parse_number(decimalLatitude)
+  ) %>%
+  filter(!is.na(decimalLongitude), !is.na(decimalLatitude))
+
+plot_map_leaflet(occur2)
+
+dna <- dna_df
+
+
+#Check that the taxa names match with WoRMS and merge any corrections
+worms <- match_taxa(unique(occur2$scientificName)) #select "y" and choose option 1 each time
+
+occur <- merge(occur2, worms, by="scientificName")
+colnames(occur2)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
+
+#Check that all required fields are present in the occurrence table
+#Check the uniqueness of the occurrenceID field (Want to = TRUE)
+
+length(occur$occurrenceID) == length(unique(occur$occurrenceID))
+
+#Can view the dataframe and filter to remove empty values from the organismQuantity column if required (remove hashtags)
+
+#View("occur ")
+
+# occur <- occur %>%
+#  filter(
+#  !is.na(organismQuantity)
+#)
+
+
+#If quality control is clear, select the term names that are specific to each core and extension file
+cleaned_occ <- occur %>%
+  select(
+    occurrenceID, bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,  eventID,
+    basisOfRecord, locationID,  recordedBy, country, datasetID, occurrenceStatus, minimumDepthInMeters, maximumDepthInMeters,
+    language,  month, year, scientificNameAuthorship, taxonID, kingdom, phylum, class, order, family, genus
+  )
+
+cleaned_dna <- dna %>%
+  select(
+    target_gene, target_subfragment, samp_name, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
+    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
+    pcr_primer_reference, occurrenceID
+  )
+
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+#write csv file and submit to OBIS
+write.csv(cleaned_occ, "OBIS_QBC_COI_occurrence.csv")
+write.csv(cleaned_dna, "OBIS_QBC_COI_dnaderiveddata.csv")
+
+
+#Create a dataframe for the extended Measurement or Fact extension
+
+emof <- dna_df %>%
+  mutate(
+    occurrenceID,
+    measurementType = NA_character_, #This column is where all the unique term names from GOTeDNA and FAIRe go
+    measurementValue = NA_character_, #
+    measurementUnit = NA_character_,
+    measurementTypeID = NA_character_, #This is where the URL link to each of the term names go
+    measurementValueID = NA_character_,
+    measurementUnitID = NA_character_,
+    measurementRemarks = NA_character_
+  ) %>%
+  select(
+    occurrenceID, measurementType, measurementValue, measurementUnit, measurementTypeID, measurementValueID, measurementUnitID, measurementUnitID, measurementRemarks
+  )
+
+
+#Map the URL to the origin of each term name
+
+url_map <- c(
+  protocol_ID              = "https://github.com/GOTeDNA-OBON",
+  protocolVersion          = "https://github.com/GOTeDNA-OBON",
+  LClabel                  = "https://github.com/GOTeDNA-OBON",
+  ownerContact             = "https://github.com/GOTeDNA-OBON",
+  samplingStation          = "https://github.com/GOTeDNA-OBON",
+  filtrationType           = "https://github.com/GOTeDNA-OBON",
+  totalDNAconc             = "https://github.com/GOTeDNA-OBON",
+  unitsDNAconc             = "https://github.com/GOTeDNA-OBON",
+  dateFiltration           = "https://github.com/GOTeDNA-OBON",
+  timeFiltration           = "https://github.com/GOTeDNA-OBON",
+  volumeFiltered           = "https://github.com/GOTeDNA-OBON",
+  depthWaterTemp           = "https://github.com/GOTeDNA-OBON",
+  occurrenceID             = "https://manual.obis.org/darwin_core.html"
+)
+
+emof <- dna_df %>%
+  select(
+    samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
+    assay_name, assay_type, targetTaxonomicAssay, samp_size_unit, filter_material, filter_name, filtrationType,
+    samp_store_temp, samp_collect_device,
+    samp_store_sol, nucl_acid_ext_kit, geo_loc_name, technical_rep_id, filtrationType,
+    project_contact, protocol_ID, protocolVersion, dateFiltration, timeFiltration,
+    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1
+  ) %>%
+  distinct() %>%
+  mutate(across(-occurrenceID, as.character)) %>%
+  pivot_longer(
+    cols = -occurrenceID,
+    names_to = "measurementType",
+    values_to = "measurementValue"
+  ) %>%
+  mutate(
+    measurementTypeID = dplyr::recode(
+      measurementType,
+      !!!url_map,
+      .default = "https://github.com/FAIR-eDNA/FAIRe_checklist"   #Default URL is FAIRe
+    ),
+    measurementUnit    = NA_character_,
+    measurementValueID = NA_character_,
+    measurementUnitID  = NA_character_,
+    measurementRemarks = NA_character_
+  )
+
+#write csv file and submit to OBIS
+write.csv(emof, "OBIS_QBC_COI_emof.csv")
+
+
+
+
+#Code for Protocol 6 Quebec metabarcoding 16S
+
+#Set working directory to the file location of the completed GOTeDNA Sample Template v.2.2
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")                    #edit to the location of your folder
+
+#Pull each metadata and metabarcoding data sheet
+GOT <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metadata")
+GOT_metabar <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metabarcoding data")
+
+#Standardize materialSampleID values between sheets, in case there are slight formatting differences
+
+GOT <- GOT %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+GOT_metabar <- GOT_metabar %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+# If multiple datasets are in the template, remove hashtags to filter for select owner contacts, locations, target genes, etc. specific to each data sheet
+
+#GOT_f <- GOT %>%
+#  filter(
+#    ownerContact == "anais.lacoursiere@dfo-mpo.gc.ca",
+#   decimalLatitude  >= 44.80 & decimalLatitude <= 45.27,   #Filter for coordinates between Bangor and St. John (to exclude PEI data)
+#   decimalLongitude >= -68.78 & decimalLongitude <= -66.07
+#)
+
+# Filter the metabarcoding dataset
+GOT_metabar_f <- GOT_metabar %>%
+  filter(
+    target_gene == "16S",
+  )
+
+
+#Combine the two data sheets into one by matching columns by the materialSampleID (sample name)
+GOT_joined <- GOT %>%
+  left_join(
+    GOT_metabar_f,
+    by = "materialSampleID",
+    relationship = "many-to-many"
+  )
+
+#Fix the values in eventDate - This code standardizes dates in case they change format from excel after being opened in R
+
+GOT_joined <- GOT_joined %>%
+  mutate(
+    # Always work from a character version
+    eventDate_chr = as.character(eventDate),
+
+    # Try to interpret as numeric (Excel serial)
+    eventDate_num = suppressWarnings(as.numeric(eventDate_chr)),
+
+    # Fix 2-digit year dates like 21/8/19 -> 21/8/2019
+    eventDate_chr_2y = if_else(
+      str_detect(eventDate_chr, "^\\d{1,2}/\\d{1,2}/\\d{2}$"),
+      sub("(\\d{1,2}/\\d{1,2}/)(\\d{2})$", "\\120\\2", eventDate_chr),
+      NA_character_
+    ),
+
+    eventDate = case_when(
+      # 1) Excel numeric serials (42293 etc.)
+      !is.na(eventDate_num) ~ as.Date(eventDate_num, origin = "1899-12-30"),
+
+      # 2) dd/mm/yy we just expanded to dd/mm/20yy
+      !is.na(eventDate_chr_2y) ~ as.Date(eventDate_chr_2y, format = "%d/%m/%Y"),
+
+      # 3) Normal dd/mm/yyyy strings
+      TRUE ~ as.Date(eventDate_chr, format = "%d/%m/%Y")
+    )
+  ) %>%
+  select(-eventDate_chr, -eventDate_num, -eventDate_chr_2y)
+
+
+# Create unique event and occurrence IDs for samples containing coordinates
+
+GOT_joined <- GOT_joined %>%
+  # 1) Remove any rows that are controls (controlType not NA/empty)
+  filter(is.na(controlType) | controlType == "") %>%
+
+  # 2) Drop any rows missing coordinates
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude)
+  ) %>%
+
+  # 3) Work within each original eventID.x
+  group_by(eventID.x) %>%
+  mutate(
+    row_suffix = row_number(),
+
+    # eventID for every remaining row (all have coords now)
+    eventID = paste0(eventID.x, "-", row_suffix),
+
+    # occurrenceID for every remaining row (present + absent)
+    occurrenceID = if_else(
+      is.na(occurrenceID),
+      paste0("DFO-QBC-16S:", materialSampleID, "-", row_suffix),
+      paste0(occurrenceID, "-", row_suffix)
+    )
+  ) %>%
+  ungroup() %>%
+  select(-row_suffix)
+
+
+#Use this code if you have values for seq_run_id and lib_id in a separate file (obtain this information from the group that sequenced your data)
+#This code will likely need to be edited dependent on how the separate file is formatted, I will keep it commented out for now for simplicity
+
+#map_raw <- read.csv("OBIS information(COI).csv", stringsAsFactors = FALSE)
+
+#map_long <- bind_rows(
+#  map_raw %>%
+#    select(seq_run_id, lib_id),
+#  map_raw %>%
+#    select(seq_run_id = seq_run_id.1,
+#           lib_id    = lib_id.1)
+#) %>%
+#  # drop completely empty rows
+#  filter(!is.na(lib_id) & lib_id != "")
+
+#map_clean <- map_long %>%
+#  # remove ENEG controls if you *don’t* want them mapped
+#  filter(!str_detect(lib_id, "ENEG")) %>%
+#  mutate(
+#    # take digits from start of string
+#    materialSampleID = str_extract(lib_id, "^[0-9]+"),
+#    materialSampleID = as.character(materialSampleID)   # keep as character
+#  ) %>%
+#  distinct(materialSampleID, .keep_all = TRUE)
+
+#map_clean <- map_clean %>%
+#  # treat blanks as NA
+#  mutate(seq_run_id = na_if(seq_run_id, "")) %>%
+#  # fill seq_run_id down within the whole table
+#  fill(seq_run_id)
+
+
+#Set up the Occurrence core dataframe
+#Edit details of each column name specific to your metadata (see glossary in SOP)
+#If including seq_run_id and lib_id from above, remove hashtags at the bottom of this script
+
+occurrence <- GOT_joined %>%
+  mutate(
+    materialSampleID = as.character(materialSampleID),
+    protocol_ID = protocol_ID.x,
+    protocolVersion = protocolVersion.x,
+    project_contact = ownerContact,
+    bibliographicCitation = bibliographicCitation,
+    basisOfRecord = "MaterialSample",
+    locationID = samplingStation,
+    materialSampleID = materialSampleID,
+    samp_name = materialSampleID,
+    technical_rep_id = "1",
+    recordedBy = recordedBy,
+    geo_loc_name = "Canada: Quebec, Gulf of St. Lawrence",
+    nameAccordingTo = "WoRMS",
+    country = "Canada",
+    datasetID = "DFO-QBC-16S",
+    decimalLatitude = decimalLatitude,
+    decimalLongitude = decimalLongitude,
+    minimumDepthInMeters = sampleDepth,
+    maximumDepthInMeters = sampleDepth,
+    samp_collect_device = case_when(
+      protocolVersion.x == 1 ~ "bottle",
+      protocolVersion.x == 2 ~ "Niskin bottle",
+    ),
+    samp_size = "2",
+    samp_size_unit = "L",
+    size_frac = case_when(
+      protocolVersion.x == 1 ~ "1.5",
+      protocolVersion.x == 2 ~ "1.2",
+    ),
+    filter_material = "glass fiber",
+    filter_name = NA_character_,
+    filtrationType = "Vacuum",
+    samp_store_sol = case_when(
+      protocolVersion.x == 1 ~ "silica beads",
+      protocolVersion.x == 2 ~ "no buffer",
+    ),
+    samp_store_temp = case_when(
+      protocolVersion.x == 1 ~ NA_character_,
+      protocolVersion.x == 2 ~ "-20",
+    ),
+    nucl_acid_ext = "PON_020302_V01",
+    nucl_acid_ext_kit = "DNeasy Power Water",
+    eventDate = eventDate,
+    occurrenceID = occurrenceID,
+    occurrenceStatus = case_when(
+      organismQuantity > 0 ~ "present",
+      organismQuantity == 0 ~ "absent",
+      TRUE ~ NA_character_
+    ),
+    language = "en",
+    materialSampleID = materialSampleID,
+    month = month(eventDate),
+    bibliographicCitation = bibliographicCitation,
+    year = year(eventDate),
+    scientificNameAuthorship = ownerContact,
+    occurrenceID = occurrenceID,
+    samp_name = materialSampleID,
+    project_name = "Quebec: Gulf of St. Lawrence 2020-2022",
+    scientificName = scientificName,
+    env_broad_scale = "marine biome (ENVO:00000447)",
+    env_local_scale = case_when(
+      protocolVersion.x == 1 ~ "water surface (ENVO:01001191)",
+      protocolVersion.x == 2 ~ "marine pelagic zone (ENVO:00000208)",
+    ),
+    env_medium = "sea water (ENVO:00002149)",
+    targetTaxonomicAssay = "eukaryotes",
+    assay_name = "16S (metabarcoding)",
+    assay_type = "metabarcoding",
+    target_gene = target_gene,
+    target_subfragment = target_subfragment,
+    seq_meth = "Illumina MiSeq [OBI_0002003]",
+    seq_kit = NA_character_,
+    ref_db = "NCBI-nt",
+    otu_db = "Maurice Lamontagne Institute metabarcoding pipeline v 0.1.0",
+    otu_seq_comp_appr = "blastn;2.12.0+",
+    pcr_primer_forward = "ATGCGAGAAGACCCTRTGGAGCT",
+    pcr_primer_reverse = "CCTNGGTCGCCCCAAC",
+    pcr_primer_name_forward = "Chord_16S_F_TagA",
+    pcr_primer_name_reverse = "Chord_16S_R_Short",
+    pcr_primer_reference = "https://doi.org/10.1111/j.1365-294X.2009.04158.x",
+    identificationRemarks = identificationRemarks,
+    checkls_ver = "1.0.2",
+    sampleSizeValue = sampleSizeValue,
+    sampleSizeUnit = sampleSizeUnit,
+    filter_passive_active_0_1 = "1",
+    samp_category = "sample",
+    project_id = "DFO-QBC-16S",
+    pcr_0_1 = "1",
+    LClabel = NA_character_
+  )
+#%>%
+#  filter(
+#    !is.na(minimumDepthInMeters),
+#    !is.na(maximumDepthInMeters),
+#    !is.na(target_gene),
+#    !is.na(scientificName)
+    #  ) %>%
+    #  left_join(
+    #    map_clean, by = "materialSampleID"
+#  )
+
+#Look up AphiaID (taxonID) from WoRMS by ScientificName
+
+species_lookup <- occurrence %>%
+  distinct(scientificName) %>%
+  mutate(
+    taxonID = map_int(
+      scientificName,
+      ~ {
+        # Keep NAs as NAs
+        if (is.na(.x) || .x == "") return(NA_integer_)
+
+        id <- tryCatch(
+          wm_name2id(.x, marine_only = FALSE),
+          error = function(e) NA
+        )
+
+        if (is.null(id) || length(id) == 0 || is.na(id[1])) {
+          NA_integer_
+        } else {
+          as.integer(id[1])
+        }
+      }
+    )
+  )
+
+# Join taxonID into occurrence, but DO NOT drop rows with no match
+occurrence <- occurrence %>%
+  select(-any_of(c("taxonID", "scientificNameID",
+                   "kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "aphiaID"))) %>%  # we'll re-create these
+  left_join(species_lookup, by = "scientificName") %>%
+  mutate(
+    # optional helper flag: which rows had a WoRMS match?
+    worms_match = !is.na(taxonID),
+    # keep AphiaID explicitly if you want it separate from taxonID
+    aphiaID = taxonID
+  )
+
+
+# Build a taxonomy lookup for each unique non-NA AphiaID
+
+# Helper to pull a rank from wm_classification()
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank", "scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  rec     <- tryCatch(wm_record(id),        error = function(e) NULL)
+
+  tibble(
+    taxonID           = id,
+    scientificNameID  = if (!is.null(rec) && "lsid" %in% names(rec))
+      rec$lsid else NA_character_,
+    kingdom           = .rank_val(classif, "Kingdom"),
+    phylum            = .rank_val(classif, "Phylum"),
+    class             = .rank_val(classif, "Class"),
+    order             = .rank_val(classif, "Order"),
+    family            = .rank_val(classif, "Family"),
+    genus             = .rank_val(classif, "Genus")
+  )
+}
+
+unique_ids <- occurrence$taxonID %>%
+  unique() %>%
+  purrr::discard(is.na)
+
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+
+#Join WoRMS taxonomy back to occurrence
+
+occurrence <- occurrence %>%
+  select(-any_of(c("kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "scientificNameID"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID")
+
+
+
+#DNA derived data extension: Link DNA sequences from otu_df
+
+dna_df <- occurrence
+
+###########################################
+#Run Quality Control checks
+#NOTE: problems in quality control checks likely occur from repeating occurrenceIDs resulting from empty values at the bottom of a dataframe (happens if there is not a clean merge between the GOTeDNA "sample metadata" and "sample metabarcoding" sheets)
+
+occur <- occurrence #change name of dataframe in case quality control checks fail and you would like to view the original dataframe for problems (Using the code: View("occurrence") )
+
+occur2 <- occur %>%
+  mutate(
+    decimalLongitude = as.character(decimalLongitude),
+    decimalLatitude  = as.character(decimalLatitude),
+
+    # common cleanup (commas, extra spaces)
+    decimalLongitude = str_replace_all(decimalLongitude, ",", ".") %>% str_trim(),
+    decimalLatitude  = str_replace_all(decimalLatitude,  ",", ".") %>% str_trim(),
+
+    # parse to numeric (non-numeric becomes NA)
+    decimalLongitude = readr::parse_number(decimalLongitude),
+    decimalLatitude  = readr::parse_number(decimalLatitude)
+  ) %>%
+  filter(!is.na(decimalLongitude), !is.na(decimalLatitude))
+
+plot_map_leaflet(occur2)
+
+dna <- dna_df
+
+
+#Check that the taxa names match with WoRMS and merge any corrections
+worms <- match_taxa(unique(occur2$scientificName)) #select "y" and choose option 1 each time
+
+occur <- merge(occur2, worms, by="scientificName")
+colnames(occur2)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
+
+#Check that all required fields are present in the occurrence table
+#Check the uniqueness of the occurrenceID field (Want to = TRUE)
+
+length(occur$occurrenceID) == length(unique(occur$occurrenceID))
+
+#Can view the dataframe and filter to remove empty values from the organismQuantity column if required (remove hashtags)
+
+#View("occur ")
+
+# occur <- occur %>%
+#  filter(
+#  !is.na(organismQuantity)
+#)
+
+
+#If quality control is clear, select the term names that are specific to each core and extension file
+cleaned_occ <- occur %>%
+  select(
+    occurrenceID, bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,  eventID,
+    basisOfRecord, locationID,  recordedBy, country, datasetID, occurrenceStatus, minimumDepthInMeters, maximumDepthInMeters,
+    language,  month, year, scientificNameAuthorship, taxonID, kingdom, phylum, class, order, family, genus
+  )
+
+cleaned_dna <- dna %>%
+  select(
+    target_gene, target_subfragment, samp_name, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
+    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
+    pcr_primer_reference, occurrenceID
+  )
+
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+#write csv file and submit to OBIS
+write.csv(cleaned_occ, "OBIS_QBC_16S_occurrence.csv")
+write.csv(cleaned_dna, "OBIS_QBC_16S_dnaderiveddata.csv")
+
+
+#Create a dataframe for the extended Measurement or Fact extension
+
+emof <- dna_df %>%
+  mutate(
+    occurrenceID,
+    measurementType = NA_character_, #This column is where all the unique term names from GOTeDNA and FAIRe go
+    measurementValue = NA_character_, #
+    measurementUnit = NA_character_,
+    measurementTypeID = NA_character_, #This is where the URL link to each of the term names go
+    measurementValueID = NA_character_,
+    measurementUnitID = NA_character_,
+    measurementRemarks = NA_character_
+  ) %>%
+  select(
+    occurrenceID, measurementType, measurementValue, measurementUnit, measurementTypeID, measurementValueID, measurementUnitID, measurementUnitID, measurementRemarks
+  )
+
+
+#Map the URL to the origin of each term name
+
+url_map <- c(
+  protocol_ID              = "https://github.com/GOTeDNA-OBON",
+  protocolVersion          = "https://github.com/GOTeDNA-OBON",
+  LClabel                  = "https://github.com/GOTeDNA-OBON",
+  ownerContact             = "https://github.com/GOTeDNA-OBON",
+  samplingStation          = "https://github.com/GOTeDNA-OBON",
+  filtrationType           = "https://github.com/GOTeDNA-OBON",
+  totalDNAconc             = "https://github.com/GOTeDNA-OBON",
+  unitsDNAconc             = "https://github.com/GOTeDNA-OBON",
+  dateFiltration           = "https://github.com/GOTeDNA-OBON",
+  timeFiltration           = "https://github.com/GOTeDNA-OBON",
+  volumeFiltered           = "https://github.com/GOTeDNA-OBON",
+  depthWaterTemp           = "https://github.com/GOTeDNA-OBON",
+  occurrenceID             = "https://manual.obis.org/darwin_core.html"
+)
+
+emof <- dna_df %>%
+  select(
+    samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
+    assay_name, assay_type, targetTaxonomicAssay, samp_size_unit, filter_material, filter_name, filtrationType,
+    samp_store_temp, samp_collect_device,
+    samp_store_sol, nucl_acid_ext_kit, geo_loc_name, technical_rep_id, filtrationType,
+    project_contact, protocol_ID, protocolVersion, dateFiltration, timeFiltration,
+    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1
+  ) %>%
+  distinct() %>%
+  mutate(across(-occurrenceID, as.character)) %>%
+  pivot_longer(
+    cols = -occurrenceID,
+    names_to = "measurementType",
+    values_to = "measurementValue"
+  ) %>%
+  mutate(
+    measurementTypeID = dplyr::recode(
+      measurementType,
+      !!!url_map,
+      .default = "https://github.com/FAIR-eDNA/FAIRe_checklist"   #Default URL is FAIRe
+    ),
+    measurementUnit    = NA_character_,
+    measurementValueID = NA_character_,
+    measurementUnitID  = NA_character_,
+    measurementRemarks = NA_character_
+  )
+
+#write csv file and submit to OBIS
+write.csv(emof, "OBIS_QBC_16S_emof.csv")
+
+#Code for Protocol 6 Quebec metabarcoding 12S
+
+##Example code for preparing three csv files (Occurrence, DNA Derived Data, extendedMeasurementOrFact) for OBIS submission from the GOTeDNA Sample Template
+#This code has been prepared for the dataset "DFO Monthly GRDI Survey eDNA metabarcoding (COI) in the Bay of Fundy 2019-2021", which is publicly available in OBIS: https://obis.org/dataset/83040ea6-0e87-4e4e-937d-1b826349c464
+
+#Install packages and Load libraries (remove hashtag to install)
+
+#install.packages("dplyr")
+#install.packages("stringr")
+#install.packages("purrr")
+#install.packages("tibble")
+#install.packages("worrms")
+#install.packages("openxlsx")
+#install.packages("lubridate")
+#install.packages("tidyr")
+#install.packages("devtools")
+#devtools::install_github("iobis/obistools")
+#install.packages("Hmisc")
+#install.paclages("Biostrings")
+
+library(dplyr)
+library(stringr)
+library(purrr)
+library(tibble)
+library(worrms)
+library(openxlsx)
+library(lubridate)
+library(tidyr)
+library(obistools)
+library(Hmisc)
+library(Biostrings)
+
+#Set working directory to the file location of the completed GOTeDNA Sample Template v.2.2
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")                    #edit to the location of your folder
+
+#Pull each metadata and metabarcoding data sheet
+GOT <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metadata")
+GOT_metabar <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metabarcoding data")
+
+#Standardize materialSampleID values between sheets, in case there are slight formatting differences
+
+GOT <- GOT %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+GOT_metabar <- GOT_metabar %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+# If multiple datasets are in the template, remove hashtags to filter for select owner contacts, locations, target genes, etc. specific to each data sheet
+
+#GOT_f <- GOT %>%
+#  filter(
+#    ownerContact == "anais.lacoursiere@dfo-mpo.gc.ca",
+#   decimalLatitude  >= 44.80 & decimalLatitude <= 45.27,   #Filter for coordinates between Bangor and St. John (to exclude PEI data)
+#   decimalLongitude >= -68.78 & decimalLongitude <= -66.07
+#)
+
+# Filter the metabarcoding dataset
+GOT_metabar_f <- GOT_metabar %>%
+  filter(
+    target_gene == "12S",
+  )
+
+
+#Combine the two data sheets into one by matching columns by the materialSampleID (sample name)
+GOT_joined <- GOT %>%
+  left_join(
+    GOT_metabar_f,
+    by = "materialSampleID",
+    relationship = "many-to-many"
+  )
+
+#Fix the values in eventDate - This code standardizes dates in case they change format from excel after being opened in R
+
+GOT_joined <- GOT_joined %>%
+  mutate(
+    # Always work from a character version
+    eventDate_chr = as.character(eventDate),
+
+    # Try to interpret as numeric (Excel serial)
+    eventDate_num = suppressWarnings(as.numeric(eventDate_chr)),
+
+    # Fix 2-digit year dates like 21/8/19 -> 21/8/2019
+    eventDate_chr_2y = if_else(
+      str_detect(eventDate_chr, "^\\d{1,2}/\\d{1,2}/\\d{2}$"),
+      sub("(\\d{1,2}/\\d{1,2}/)(\\d{2})$", "\\120\\2", eventDate_chr),
+      NA_character_
+    ),
+
+    eventDate = case_when(
+      # 1) Excel numeric serials (42293 etc.)
+      !is.na(eventDate_num) ~ as.Date(eventDate_num, origin = "1899-12-30"),
+
+      # 2) dd/mm/yy we just expanded to dd/mm/20yy
+      !is.na(eventDate_chr_2y) ~ as.Date(eventDate_chr_2y, format = "%d/%m/%Y"),
+
+      # 3) Normal dd/mm/yyyy strings
+      TRUE ~ as.Date(eventDate_chr, format = "%d/%m/%Y")
+    )
+  ) %>%
+  select(-eventDate_chr, -eventDate_num, -eventDate_chr_2y)
+
+
+# Create unique event and occurrence IDs for samples containing coordinates
+
+GOT_joined <- GOT_joined %>%
+  # 1) Remove any rows that are controls (controlType not NA/empty)
+  filter(is.na(controlType) | controlType == "") %>%
+
+  # 2) Drop any rows missing coordinates
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude)
+  ) %>%
+
+  # 3) Work within each original eventID.x
+  group_by(eventID.x) %>%
+  mutate(
+    row_suffix = row_number(),
+
+    # eventID for every remaining row (all have coords now)
+    eventID = paste0(eventID.x, "-", row_suffix),
+
+    # occurrenceID for every remaining row (present + absent)
+    occurrenceID = if_else(
+      is.na(occurrenceID),
+      paste0("DFO-QBC-COI:", materialSampleID, "-", row_suffix),
+      paste0(occurrenceID, "-", row_suffix)
+    )
+  ) %>%
+  ungroup() %>%
+  select(-row_suffix)
+
+
+#Use this code if you have values for seq_run_id and lib_id in a separate file (obtain this information from the group that sequenced your data)
+#This code will likely need to be edited dependent on how the separate file is formatted, I will keep it commented out for now for simplicity
+
+#map_raw <- read.csv("OBIS information(COI).csv", stringsAsFactors = FALSE)
+
+#map_long <- bind_rows(
+#  map_raw %>%
+#    select(seq_run_id, lib_id),
+#  map_raw %>%
+#    select(seq_run_id = seq_run_id.1,
+#           lib_id    = lib_id.1)
+#) %>%
+#  # drop completely empty rows
+#  filter(!is.na(lib_id) & lib_id != "")
+
+#map_clean <- map_long %>%
+#  # remove ENEG controls if you *don’t* want them mapped
+#  filter(!str_detect(lib_id, "ENEG")) %>%
+#  mutate(
+#    # take digits from start of string
+#    materialSampleID = str_extract(lib_id, "^[0-9]+"),
+#    materialSampleID = as.character(materialSampleID)   # keep as character
+#  ) %>%
+#  distinct(materialSampleID, .keep_all = TRUE)
+
+#map_clean <- map_clean %>%
+#  # treat blanks as NA
+#  mutate(seq_run_id = na_if(seq_run_id, "")) %>%
+#  # fill seq_run_id down within the whole table
+#  fill(seq_run_id)
+
+
+#Set up the Occurrence core dataframe
+#Edit details of each column name specific to your metadata (see glossary in SOP)
+#If including seq_run_id and lib_id from above, remove hashtags at the bottom of this script
+
+occurrence <- GOT_joined %>%
+  mutate(
+    materialSampleID = as.character(materialSampleID),
+    protocol_ID = protocol_ID.x,
+    protocolVersion = protocolVersion.x,
+    project_contact = ownerContact,
+    bibliographicCitation = bibliographicCitation,
+    basisOfRecord = "MaterialSample",
+    locationID = samplingStation,
+    materialSampleID = materialSampleID,
+    samp_name = materialSampleID,
+    technical_rep_id = "1",
+    recordedBy = recordedBy,
+    geo_loc_name = "Canada: Quebec, Gulf of St. Lawrence",
+    nameAccordingTo = "WoRMS",
+    country = "Canada",
+    datasetID = "DFO-QBC-12S",
+    decimalLatitude = decimalLatitude,
+    decimalLongitude = decimalLongitude,
+    minimumDepthInMeters = sampleDepth,
+    maximumDepthInMeters = sampleDepth,
+    samp_collect_device = case_when(
+      protocolVersion.x == 1 ~ "bottle",
+      protocolVersion.x == 2 ~ "Niskin bottle",
+    ),
+    samp_size = "2",
+    samp_size_unit = "L",
+    size_frac = case_when(
+      protocolVersion.x == 1 ~ "1.5",
+      protocolVersion.x == 2 ~ "1.2",
+    ),
+    filter_material = "glass fiber",
+    filter_name = NA_character_,
+    filtrationType = "Vacuum",
+    samp_store_sol = case_when(
+      protocolVersion.x == 1 ~ "silica beads",
+      protocolVersion.x == 2 ~ "no buffer",
+    ),
+    samp_store_temp = case_when(
+      protocolVersion.x == 1 ~ NA_character_,
+      protocolVersion.x == 2 ~ "-20",
+    ),
+    nucl_acid_ext = "PON_020302_V01",
+    nucl_acid_ext_kit = "DNeasy Power Water",
+    eventDate = eventDate,
+    occurrenceID = occurrenceID,
+    occurrenceStatus = case_when(
+      organismQuantity > 0 ~ "present",
+      organismQuantity == 0 ~ "absent",
+      TRUE ~ NA_character_
+    ),
+    language = "en",
+    materialSampleID = materialSampleID,
+    month = month(eventDate),
+    bibliographicCitation = bibliographicCitation,
+    year = year(eventDate),
+    scientificNameAuthorship = ownerContact,
+    occurrenceID = occurrenceID,
+    samp_name = materialSampleID,
+    project_name = "Quebec: Gulf of St. Lawrence 2020-2022",
+    scientificName = scientificName,
+    env_broad_scale = "marine biome (ENVO:00000447)",
+    env_local_scale = case_when(
+      protocolVersion.x == 1 ~ "water surface (ENVO:01001191)",
+      protocolVersion.x == 2 ~ "marine pelagic zone (ENVO:00000208)",
+    ),
+    env_medium = "sea water (ENVO:00002149)",
+    targetTaxonomicAssay = "eukaryotes",
+    assay_name = "12S-MiFishU (metabarcoding)",
+    assay_type = "metabarcoding",
+    target_gene = target_gene,
+    target_subfragment = target_subfragment,
+    seq_meth = "Illumina MiSeq [OBI_0002003]",
+    seq_kit = NA_character_,
+    ref_db = "NCBI-nt",
+    otu_db = "Maurice Lamontagne Institute metabarcoding pipeline v 0.1.0",
+    otu_seq_comp_appr = "blastn;2.12.0+",
+    pcr_primer_forward = "GTCGGTAAAACTCGTGCCAGC",
+    pcr_primer_reverse = "CATAGTGGGGTATCTAATCCCAGTTTG",
+    pcr_primer_name_forward = "MiFish_UF_Miya",
+    pcr_primer_name_reverse = "MiFish_UR_Miya",
+    pcr_primer_reference = "https://doi.org/10.1098/rsos.150088",
+    identificationRemarks = identificationRemarks,
+    checkls_ver = "1.0.2",
+    sampleSizeValue = sampleSizeValue,
+    sampleSizeUnit = sampleSizeUnit,
+    filter_passive_active_0_1 = "1",
+    samp_category = "sample",
+    project_id = "DFO-QBC-12S",
+    pcr_0_1 = "1",
+    LClabel = NA_character_
+  )
+#%>%
+#  filter(
+#    !is.na(minimumDepthInMeters),
+#    !is.na(maximumDepthInMeters),
+#    !is.na(target_gene),
+#    !is.na(scientificName)
+    #  ) %>%
+    #  left_join(
+    #    map_clean, by = "materialSampleID"
+#  )
+
+#Look up AphiaID (taxonID) from WoRMS by ScientificName
+
+species_lookup <- occurrence %>%
+  distinct(scientificName) %>%
+  mutate(
+    taxonID = map_int(
+      scientificName,
+      ~ {
+        # Keep NAs as NAs
+        if (is.na(.x) || .x == "") return(NA_integer_)
+
+        id <- tryCatch(
+          wm_name2id(.x, marine_only = FALSE),
+          error = function(e) NA
+        )
+
+        if (is.null(id) || length(id) == 0 || is.na(id[1])) {
+          NA_integer_
+        } else {
+          as.integer(id[1])
+        }
+      }
+    )
+  )
+
+# Join taxonID into occurrence, but DO NOT drop rows with no match
+occurrence <- occurrence %>%
+  select(-any_of(c("taxonID", "scientificNameID",
+                   "kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "aphiaID"))) %>%  # we'll re-create these
+  left_join(species_lookup, by = "scientificName") %>%
+  mutate(
+    # optional helper flag: which rows had a WoRMS match?
+    worms_match = !is.na(taxonID),
+    # keep AphiaID explicitly if you want it separate from taxonID
+    aphiaID = taxonID
+  )
+
+
+# Build a taxonomy lookup for each unique non-NA AphiaID
+
+# Helper to pull a rank from wm_classification()
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank", "scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  rec     <- tryCatch(wm_record(id),        error = function(e) NULL)
+
+  tibble(
+    taxonID           = id,
+    scientificNameID  = if (!is.null(rec) && "lsid" %in% names(rec))
+      rec$lsid else NA_character_,
+    kingdom           = .rank_val(classif, "Kingdom"),
+    phylum            = .rank_val(classif, "Phylum"),
+    class             = .rank_val(classif, "Class"),
+    order             = .rank_val(classif, "Order"),
+    family            = .rank_val(classif, "Family"),
+    genus             = .rank_val(classif, "Genus")
+  )
+}
+
+unique_ids <- occurrence$taxonID %>%
+  unique() %>%
+  purrr::discard(is.na)
+
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+
+#Join WoRMS taxonomy back to occurrence
+
+occurrence <- occurrence %>%
+  select(-any_of(c("kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "scientificNameID"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID")
+
+
+
+#DNA derived data extension: Link DNA sequences from otu_df
+
+dna_df <- occurrence
+
+###########################################
+#Run Quality Control checks
+#NOTE: problems in quality control checks likely occur from repeating occurrenceIDs resulting from empty values at the bottom of a dataframe (happens if there is not a clean merge between the GOTeDNA "sample metadata" and "sample metabarcoding" sheets)
+
+occur <- occurrence #change name of dataframe in case quality control checks fail and you would like to view the original dataframe for problems (Using the code: View("occurrence") )
+
+occur2 <- occur %>%
+  mutate(
+    decimalLongitude = as.character(decimalLongitude),
+    decimalLatitude  = as.character(decimalLatitude),
+
+    # common cleanup (commas, extra spaces)
+    decimalLongitude = str_replace_all(decimalLongitude, ",", ".") %>% str_trim(),
+    decimalLatitude  = str_replace_all(decimalLatitude,  ",", ".") %>% str_trim(),
+
+    # parse to numeric (non-numeric becomes NA)
+    decimalLongitude = readr::parse_number(decimalLongitude),
+    decimalLatitude  = readr::parse_number(decimalLatitude)
+  ) %>%
+  filter(!is.na(decimalLongitude), !is.na(decimalLatitude))
+
+plot_map_leaflet(occur2)
+
+
+dna_df <- dna_df %>%
+  filter(str_detect(occurrenceID, "MiFishU"))
+
+dna <- dna_df
+
+
+#Check that the taxa names match with WoRMS and merge any corrections
+worms <- match_taxa(unique(occur2$scientificName)) #select "y" and choose option 1 each time
+
+occur <- merge(occur2, worms, by="scientificName")
+colnames(occur2)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
+
+#Check that all required fields are present in the occurrence table
+#Check the uniqueness of the occurrenceID field (Want to = TRUE)
+
+length(occur$occurrenceID) == length(unique(occur$occurrenceID))
+
+#Can view the dataframe and filter to remove empty values from the organismQuantity column if required (remove hashtags)
+
+#View("occur ")
+
+# occur <- occur %>%
+#  filter(
+#  !is.na(organismQuantity)
+#)
+
+
+#If quality control is clear, select the term names that are specific to each core and extension file
+cleaned_occ <- occur %>%
+  select(
+    occurrenceID, bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,  eventID,
+    basisOfRecord, locationID,  recordedBy, country, datasetID, occurrenceStatus, minimumDepthInMeters, maximumDepthInMeters,
+    language,  month, year, scientificNameAuthorship, taxonID, kingdom, phylum, class, order, family, genus
+  )
+
+cleaned_dna <- dna %>%
+  select(
+    target_gene, target_subfragment, samp_name, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
+    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
+    pcr_primer_reference, occurrenceID
+  )
+
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+#write csv file and submit to OBIS
+write.csv(cleaned_occ, "OBIS_QBC_12S_occurrence.csv")
+write.csv(cleaned_dna, "OBIS_QBC_12S_MiFishU_dnaderiveddata.csv")
+
+
+#Create a dataframe for the extended Measurement or Fact extension
+
+emof <- dna_df %>%
+  mutate(
+    occurrenceID,
+    measurementType = NA_character_, #This column is where all the unique term names from GOTeDNA and FAIRe go
+    measurementValue = NA_character_, #
+    measurementUnit = NA_character_,
+    measurementTypeID = NA_character_, #This is where the URL link to each of the term names go
+    measurementValueID = NA_character_,
+    measurementUnitID = NA_character_,
+    measurementRemarks = NA_character_
+  ) %>%
+  select(
+    occurrenceID, measurementType, measurementValue, measurementUnit, measurementTypeID, measurementValueID, measurementUnitID, measurementUnitID, measurementRemarks
+  )
+
+
+#Map the URL to the origin of each term name
+
+url_map <- c(
+  protocol_ID              = "https://github.com/GOTeDNA-OBON",
+  protocolVersion          = "https://github.com/GOTeDNA-OBON",
+  LClabel                  = "https://github.com/GOTeDNA-OBON",
+  ownerContact             = "https://github.com/GOTeDNA-OBON",
+  samplingStation          = "https://github.com/GOTeDNA-OBON",
+  filtrationType           = "https://github.com/GOTeDNA-OBON",
+  totalDNAconc             = "https://github.com/GOTeDNA-OBON",
+  unitsDNAconc             = "https://github.com/GOTeDNA-OBON",
+  dateFiltration           = "https://github.com/GOTeDNA-OBON",
+  timeFiltration           = "https://github.com/GOTeDNA-OBON",
+  volumeFiltered           = "https://github.com/GOTeDNA-OBON",
+  depthWaterTemp           = "https://github.com/GOTeDNA-OBON",
+  occurrenceID             = "https://manual.obis.org/darwin_core.html"
+)
+
+emof <- dna_df %>%
+  select(
+    samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
+    assay_name, assay_type, targetTaxonomicAssay, samp_size_unit, filter_material, filter_name, filtrationType,
+    samp_store_temp, samp_collect_device,
+    samp_store_sol, nucl_acid_ext_kit, geo_loc_name, technical_rep_id, filtrationType,
+    project_contact, protocol_ID, protocolVersion, dateFiltration, timeFiltration,
+    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1
+  ) %>%
+  distinct() %>%
+  mutate(across(-occurrenceID, as.character)) %>%
+  pivot_longer(
+    cols = -occurrenceID,
+    names_to = "measurementType",
+    values_to = "measurementValue"
+  ) %>%
+  mutate(
+    measurementTypeID = dplyr::recode(
+      measurementType,
+      !!!url_map,
+      .default = "https://github.com/FAIR-eDNA/FAIRe_checklist"   #Default URL is FAIRe
+    ),
+    measurementUnit    = NA_character_,
+    measurementValueID = NA_character_,
+    measurementUnitID  = NA_character_,
+    measurementRemarks = NA_character_
+  )
+
+#write csv file and submit to OBIS
+write.csv(emof, "OBIS_QBC_12S_MiFishU_emof.csv")
+
+
+
+
+
+
+
+
+
+#################################################################################################
+#Set working directory to the file location of the completed GOTeDNA Sample Template v.2.2
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")                    #edit to the location of your folder
+
+#Pull each metadata and metabarcoding data sheet
+GOT <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metadata")
+GOT_metabar <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metabarcoding data")
+
+#Standardize materialSampleID values between sheets, in case there are slight formatting differences
+
+GOT <- GOT %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+GOT_metabar <- GOT_metabar %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+# If multiple datasets are in the template, remove hashtags to filter for select owner contacts, locations, target genes, etc. specific to each data sheet
+
+#GOT_f <- GOT %>%
+#  filter(
+#    ownerContact == "anais.lacoursiere@dfo-mpo.gc.ca",
+#   decimalLatitude  >= 44.80 & decimalLatitude <= 45.27,   #Filter for coordinates between Bangor and St. John (to exclude PEI data)
+#   decimalLongitude >= -68.78 & decimalLongitude <= -66.07
+#)
+
+# Filter the metabarcoding dataset
+GOT_metabar_f <- GOT_metabar %>%
+  filter(
+    target_gene == "12S",
+  )
+
+
+#Combine the two data sheets into one by matching columns by the materialSampleID (sample name)
+GOT_joined <- GOT %>%
+  left_join(
+    GOT_metabar_f,
+    by = "materialSampleID",
+    relationship = "many-to-many"
+  )
+
+#Fix the values in eventDate - This code standardizes dates in case they change format from excel after being opened in R
+
+GOT_joined <- GOT_joined %>%
+  mutate(
+    # Always work from a character version
+    eventDate_chr = as.character(eventDate),
+
+    # Try to interpret as numeric (Excel serial)
+    eventDate_num = suppressWarnings(as.numeric(eventDate_chr)),
+
+    # Fix 2-digit year dates like 21/8/19 -> 21/8/2019
+    eventDate_chr_2y = if_else(
+      str_detect(eventDate_chr, "^\\d{1,2}/\\d{1,2}/\\d{2}$"),
+      sub("(\\d{1,2}/\\d{1,2}/)(\\d{2})$", "\\120\\2", eventDate_chr),
+      NA_character_
+    ),
+
+    eventDate = case_when(
+      # 1) Excel numeric serials (42293 etc.)
+      !is.na(eventDate_num) ~ as.Date(eventDate_num, origin = "1899-12-30"),
+
+      # 2) dd/mm/yy we just expanded to dd/mm/20yy
+      !is.na(eventDate_chr_2y) ~ as.Date(eventDate_chr_2y, format = "%d/%m/%Y"),
+
+      # 3) Normal dd/mm/yyyy strings
+      TRUE ~ as.Date(eventDate_chr, format = "%d/%m/%Y")
+    )
+  ) %>%
+  select(-eventDate_chr, -eventDate_num, -eventDate_chr_2y)
+
+
+# Create unique event and occurrence IDs for samples containing coordinates
+
+GOT_joined <- GOT_joined %>%
+  # 1) Remove any rows that are controls (controlType not NA/empty)
+  filter(is.na(controlType) | controlType == "") %>%
+
+  # 2) Drop any rows missing coordinates
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude)
+  ) %>%
+
+  # 3) Work within each original eventID.x
+  group_by(eventID.x) %>%
+  mutate(
+    row_suffix = row_number(),
+
+    # eventID for every remaining row (all have coords now)
+    eventID = paste0(eventID.x, "-", row_suffix),
+
+    # occurrenceID for every remaining row (present + absent)
+    occurrenceID = if_else(
+      is.na(occurrenceID),
+      paste0("DFO-QBC-COI:", materialSampleID, "-", row_suffix),
+      paste0(occurrenceID, "-", row_suffix)
+    )
+  ) %>%
+  ungroup() %>%
+  select(-row_suffix)
+
+
+#Use this code if you have values for seq_run_id and lib_id in a separate file (obtain this information from the group that sequenced your data)
+#This code will likely need to be edited dependent on how the separate file is formatted, I will keep it commented out for now for simplicity
+
+#map_raw <- read.csv("OBIS information(COI).csv", stringsAsFactors = FALSE)
+
+#map_long <- bind_rows(
+#  map_raw %>%
+#    select(seq_run_id, lib_id),
+#  map_raw %>%
+#    select(seq_run_id = seq_run_id.1,
+#           lib_id    = lib_id.1)
+#) %>%
+#  # drop completely empty rows
+#  filter(!is.na(lib_id) & lib_id != "")
+
+#map_clean <- map_long %>%
+#  # remove ENEG controls if you *don’t* want them mapped
+#  filter(!str_detect(lib_id, "ENEG")) %>%
+#  mutate(
+#    # take digits from start of string
+#    materialSampleID = str_extract(lib_id, "^[0-9]+"),
+#    materialSampleID = as.character(materialSampleID)   # keep as character
+#  ) %>%
+#  distinct(materialSampleID, .keep_all = TRUE)
+
+#map_clean <- map_clean %>%
+#  # treat blanks as NA
+#  mutate(seq_run_id = na_if(seq_run_id, "")) %>%
+#  # fill seq_run_id down within the whole table
+#  fill(seq_run_id)
+
+
+#Set up the Occurrence core dataframe
+#Edit details of each column name specific to your metadata (see glossary in SOP)
+#If including seq_run_id and lib_id from above, remove hashtags at the bottom of this script
+
+occurrence <- GOT_joined %>%
+  mutate(
+    materialSampleID = as.character(materialSampleID),
+    protocol_ID = protocol_ID.x,
+    protocolVersion = protocolVersion.x,
+    project_contact = ownerContact,
+    bibliographicCitation = bibliographicCitation,
+    basisOfRecord = "MaterialSample",
+    locationID = samplingStation,
+    materialSampleID = materialSampleID,
+    samp_name = materialSampleID,
+    technical_rep_id = "1",
+    recordedBy = recordedBy,
+    geo_loc_name = "Canada: Quebec, Gulf of St. Lawrence",
+    nameAccordingTo = "WoRMS",
+    country = "Canada",
+    datasetID = "DFO-QBC-12S",
+    decimalLatitude = decimalLatitude,
+    decimalLongitude = decimalLongitude,
+    minimumDepthInMeters = sampleDepth,
+    maximumDepthInMeters = sampleDepth,
+    samp_collect_device = case_when(
+      protocolVersion.x == 1 ~ "bottle",
+      protocolVersion.x == 2 ~ "Niskin bottle",
+    ),
+    samp_size = "2",
+    samp_size_unit = "L",
+    size_frac = case_when(
+      protocolVersion.x == 1 ~ "1.5",
+      protocolVersion.x == 2 ~ "1.2",
+    ),
+    filter_material = "glass fiber",
+    filter_name = NA_character_,
+    filtrationType = "Vacuum",
+    samp_store_sol = case_when(
+      protocolVersion.x == 1 ~ "silica beads",
+      protocolVersion.x == 2 ~ "no buffer",
+    ),
+    samp_store_temp = case_when(
+      protocolVersion.x == 1 ~ NA_character_,
+      protocolVersion.x == 2 ~ "-20",
+    ),
+    nucl_acid_ext = "PON_020302_V01",
+    nucl_acid_ext_kit = "DNeasy Power Water",
+    eventDate = eventDate,
+    occurrenceID = occurrenceID,
+    occurrenceStatus = case_when(
+      organismQuantity > 0 ~ "present",
+      organismQuantity == 0 ~ "absent",
+      TRUE ~ NA_character_
+    ),
+    language = "en",
+    materialSampleID = materialSampleID,
+    month = month(eventDate),
+    bibliographicCitation = bibliographicCitation,
+    year = year(eventDate),
+    scientificNameAuthorship = ownerContact,
+    occurrenceID = occurrenceID,
+    samp_name = materialSampleID,
+    project_name = "Quebec: Gulf of St. Lawrence 2020-2022",
+    scientificName = scientificName,
+    env_broad_scale = "marine biome (ENVO:00000447)",
+    env_local_scale = case_when(
+      protocolVersion.x == 1 ~ "water surface (ENVO:01001191)",
+      protocolVersion.x == 2 ~ "marine pelagic zone (ENVO:00000208)",
+    ),
+    env_medium = "sea water (ENVO:00002149)",
+    targetTaxonomicAssay = "eukaryotes",
+    assay_name = "12S-MiFish (metabarcoding)",
+    assay_type = "metabarcoding",
+    target_gene = target_gene,
+    target_subfragment = target_subfragment,
+    seq_meth = "Illumina MiSeq [OBI_0002003]",
+    seq_kit = NA_character_,
+    ref_db = "NCBI-nt",
+    otu_db = "Maurice Lamontagne Institute metabarcoding pipeline v 0.1.0",
+    otu_seq_comp_appr = "blastn;2.12.0+",
+    pcr_primer_forward = "CGTGCCAGCCACCGCGGTT",
+    pcr_primer_reverse = "CATAGTGGGGTATCTAATCCCAGTTTG",
+    pcr_primer_name_forward = "12S_248F_RADS",
+    pcr_primer_name_reverse = "Mifish_UR_Miya",
+    pcr_primer_reference = "https://doi.org/10.1098/rsos.150088 | Steeves unpublished",
+    identificationRemarks = identificationRemarks,
+    checkls_ver = "1.0.2",
+    sampleSizeValue = sampleSizeValue,
+    sampleSizeUnit = sampleSizeUnit,
+    filter_passive_active_0_1 = "1",
+    samp_category = "sample",
+    project_id = "DFO-QBC-12S",
+    pcr_0_1 = "1",
+    LClabel = NA_character_
+  )
+#%>%
+#  filter(
+#    !is.na(minimumDepthInMeters),
+#    !is.na(maximumDepthInMeters),
+#    !is.na(target_gene),
+#    !is.na(scientificName)
+    #  ) %>%
+    #  left_join(
+    #    map_clean, by = "materialSampleID"
+#  )
+
+#Look up AphiaID (taxonID) from WoRMS by ScientificName
+
+species_lookup <- occurrence %>%
+  distinct(scientificName) %>%
+  mutate(
+    taxonID = map_int(
+      scientificName,
+      ~ {
+        # Keep NAs as NAs
+        if (is.na(.x) || .x == "") return(NA_integer_)
+
+        id <- tryCatch(
+          wm_name2id(.x, marine_only = FALSE),
+          error = function(e) NA
+        )
+
+        if (is.null(id) || length(id) == 0 || is.na(id[1])) {
+          NA_integer_
+        } else {
+          as.integer(id[1])
+        }
+      }
+    )
+  )
+
+# Join taxonID into occurrence, but DO NOT drop rows with no match
+occurrence <- occurrence %>%
+  select(-any_of(c("taxonID", "scientificNameID",
+                   "kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "aphiaID"))) %>%  # we'll re-create these
+  left_join(species_lookup, by = "scientificName") %>%
+  mutate(
+    # optional helper flag: which rows had a WoRMS match?
+    worms_match = !is.na(taxonID),
+    # keep AphiaID explicitly if you want it separate from taxonID
+    aphiaID = taxonID
+  )
+
+
+# Build a taxonomy lookup for each unique non-NA AphiaID
+
+# Helper to pull a rank from wm_classification()
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank", "scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  rec     <- tryCatch(wm_record(id),        error = function(e) NULL)
+
+  tibble(
+    taxonID           = id,
+    scientificNameID  = if (!is.null(rec) && "lsid" %in% names(rec))
+      rec$lsid else NA_character_,
+    kingdom           = .rank_val(classif, "Kingdom"),
+    phylum            = .rank_val(classif, "Phylum"),
+    class             = .rank_val(classif, "Class"),
+    order             = .rank_val(classif, "Order"),
+    family            = .rank_val(classif, "Family"),
+    genus             = .rank_val(classif, "Genus")
+  )
+}
+
+unique_ids <- occurrence$taxonID %>%
+  unique() %>%
+  purrr::discard(is.na)
+
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+
+#Join WoRMS taxonomy back to occurrence
+
+occurrence <- occurrence %>%
+  select(-any_of(c("kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "scientificNameID"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID")
+
+
+
+#DNA derived data extension: Link DNA sequences from otu_df
+
+dna_df <- occurrence
+
+###########################################
+#Run Quality Control checks
+#NOTE: problems in quality control checks likely occur from repeating occurrenceIDs resulting from empty values at the bottom of a dataframe (happens if there is not a clean merge between the GOTeDNA "sample metadata" and "sample metabarcoding" sheets)
+
+occur <- occurrence #change name of dataframe in case quality control checks fail and you would like to view the original dataframe for problems (Using the code: View("occurrence") )
+
+occur2 <- occur %>%
+  mutate(
+    decimalLongitude = as.character(decimalLongitude),
+    decimalLatitude  = as.character(decimalLatitude),
+
+    # common cleanup (commas, extra spaces)
+    decimalLongitude = str_replace_all(decimalLongitude, ",", ".") %>% str_trim(),
+    decimalLatitude  = str_replace_all(decimalLatitude,  ",", ".") %>% str_trim(),
+
+    # parse to numeric (non-numeric becomes NA)
+    decimalLongitude = readr::parse_number(decimalLongitude),
+    decimalLatitude  = readr::parse_number(decimalLatitude)
+  ) %>%
+  filter(!is.na(decimalLongitude), !is.na(decimalLatitude))
+
+plot_map_leaflet(occur2)
+
+
+dna_df <- dna_df %>%
+  filter(str_detect(occurrenceID, "MiFish_12S"))
+
+dna <- dna_df
+
+
+#Check that the taxa names match with WoRMS and merge any corrections
+worms <- match_taxa(unique(occur2$scientificName)) #select "y" and choose option 1 each time
+
+occur <- merge(occur2, worms, by="scientificName")
+colnames(occur2)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
+
+#Check that all required fields are present in the occurrence table
+#Check the uniqueness of the occurrenceID field (Want to = TRUE)
+
+length(occur$occurrenceID) == length(unique(occur$occurrenceID))
+
+#Can view the dataframe and filter to remove empty values from the organismQuantity column if required (remove hashtags)
+
+#View("occur ")
+
+# occur <- occur %>%
+#  filter(
+#  !is.na(organismQuantity)
+#)
+
+
+#If quality control is clear, select the term names that are specific to each core and extension file
+cleaned_occ <- occur %>%
+  select(
+    occurrenceID, bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,  eventID,
+    basisOfRecord, locationID,  recordedBy, country, datasetID, occurrenceStatus, minimumDepthInMeters, maximumDepthInMeters,
+    language,  month, year, scientificNameAuthorship, taxonID, kingdom, phylum, class, order, family, genus
+  )
+
+cleaned_dna <- dna %>%
+  select(
+    target_gene, target_subfragment, samp_name, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
+    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
+    pcr_primer_reference, occurrenceID
+  )
+
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+#write csv file and submit to OBIS
+write.csv(cleaned_dna, "OBIS_QBC_12S_MiFish_dnaderiveddata.csv")
+
+
+#Create a dataframe for the extended Measurement or Fact extension
+
+emof <- dna_df %>%
+  mutate(
+    occurrenceID,
+    measurementType = NA_character_, #This column is where all the unique term names from GOTeDNA and FAIRe go
+    measurementValue = NA_character_, #
+    measurementUnit = NA_character_,
+    measurementTypeID = NA_character_, #This is where the URL link to each of the term names go
+    measurementValueID = NA_character_,
+    measurementUnitID = NA_character_,
+    measurementRemarks = NA_character_
+  ) %>%
+  select(
+    occurrenceID, measurementType, measurementValue, measurementUnit, measurementTypeID, measurementValueID, measurementUnitID, measurementUnitID, measurementRemarks
+  )
+
+
+#Map the URL to the origin of each term name
+
+url_map <- c(
+  protocol_ID              = "https://github.com/GOTeDNA-OBON",
+  protocolVersion          = "https://github.com/GOTeDNA-OBON",
+  LClabel                  = "https://github.com/GOTeDNA-OBON",
+  ownerContact             = "https://github.com/GOTeDNA-OBON",
+  samplingStation          = "https://github.com/GOTeDNA-OBON",
+  filtrationType           = "https://github.com/GOTeDNA-OBON",
+  totalDNAconc             = "https://github.com/GOTeDNA-OBON",
+  unitsDNAconc             = "https://github.com/GOTeDNA-OBON",
+  dateFiltration           = "https://github.com/GOTeDNA-OBON",
+  timeFiltration           = "https://github.com/GOTeDNA-OBON",
+  volumeFiltered           = "https://github.com/GOTeDNA-OBON",
+  depthWaterTemp           = "https://github.com/GOTeDNA-OBON",
+  occurrenceID             = "https://manual.obis.org/darwin_core.html"
+)
+
+emof <- dna_df %>%
+  select(
+    samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
+    assay_name, assay_type, targetTaxonomicAssay, samp_size_unit, filter_material, filter_name, filtrationType,
+    samp_store_temp, samp_collect_device,
+    samp_store_sol, nucl_acid_ext_kit, geo_loc_name, technical_rep_id, filtrationType,
+    project_contact, protocol_ID, protocolVersion, dateFiltration, timeFiltration,
+    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1
+  ) %>%
+  distinct() %>%
+  mutate(across(-occurrenceID, as.character)) %>%
+  pivot_longer(
+    cols = -occurrenceID,
+    names_to = "measurementType",
+    values_to = "measurementValue"
+  ) %>%
+  mutate(
+    measurementTypeID = dplyr::recode(
+      measurementType,
+      !!!url_map,
+      .default = "https://github.com/FAIR-eDNA/FAIRe_checklist"   #Default URL is FAIRe
+    ),
+    measurementUnit    = NA_character_,
+    measurementValueID = NA_character_,
+    measurementUnitID  = NA_character_,
+    measurementRemarks = NA_character_
+  )
+
+#write csv file and submit to OBIS
+write.csv(emof, "OBIS_QBC_12S_MiFish_emof.csv")
+
+
+
+
+#################################################################################################
+#Set working directory to the file location of the completed GOTeDNA Sample Template v.2.2
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")                    #edit to the location of your folder
+
+#Pull each metadata and metabarcoding data sheet
+GOT <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metadata")
+GOT_metabar <- read.xlsx("GOTeDNA-6_data.xlsx", sheet = "Sample_Metabarcoding data")
+
+#Standardize materialSampleID values between sheets, in case there are slight formatting differences
+
+GOT <- GOT %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+GOT_metabar <- GOT_metabar %>%
+  mutate(materialSampleID = as.character(materialSampleID),
+         materialSampleID = sub("\\.0$", "", materialSampleID))
+
+# If multiple datasets are in the template, remove hashtags to filter for select owner contacts, locations, target genes, etc. specific to each data sheet
+
+#GOT_f <- GOT %>%
+#  filter(
+#    ownerContact == "anais.lacoursiere@dfo-mpo.gc.ca",
+#   decimalLatitude  >= 44.80 & decimalLatitude <= 45.27,   #Filter for coordinates between Bangor and St. John (to exclude PEI data)
+#   decimalLongitude >= -68.78 & decimalLongitude <= -66.07
+#)
+
+# Filter the metabarcoding dataset
+GOT_metabar_f <- GOT_metabar %>%
+  filter(
+    target_gene == "12S",
+  )
+
+
+#Combine the two data sheets into one by matching columns by the materialSampleID (sample name)
+GOT_joined <- GOT %>%
+  left_join(
+    GOT_metabar_f,
+    by = "materialSampleID",
+    relationship = "many-to-many"
+  )
+
+#Fix the values in eventDate - This code standardizes dates in case they change format from excel after being opened in R
+
+GOT_joined <- GOT_joined %>%
+  mutate(
+    # Always work from a character version
+    eventDate_chr = as.character(eventDate),
+
+    # Try to interpret as numeric (Excel serial)
+    eventDate_num = suppressWarnings(as.numeric(eventDate_chr)),
+
+    # Fix 2-digit year dates like 21/8/19 -> 21/8/2019
+    eventDate_chr_2y = if_else(
+      str_detect(eventDate_chr, "^\\d{1,2}/\\d{1,2}/\\d{2}$"),
+      sub("(\\d{1,2}/\\d{1,2}/)(\\d{2})$", "\\120\\2", eventDate_chr),
+      NA_character_
+    ),
+
+    eventDate = case_when(
+      # 1) Excel numeric serials (42293 etc.)
+      !is.na(eventDate_num) ~ as.Date(eventDate_num, origin = "1899-12-30"),
+
+      # 2) dd/mm/yy we just expanded to dd/mm/20yy
+      !is.na(eventDate_chr_2y) ~ as.Date(eventDate_chr_2y, format = "%d/%m/%Y"),
+
+      # 3) Normal dd/mm/yyyy strings
+      TRUE ~ as.Date(eventDate_chr, format = "%d/%m/%Y")
+    )
+  ) %>%
+  select(-eventDate_chr, -eventDate_num, -eventDate_chr_2y)
+
+
+# Create unique event and occurrence IDs for samples containing coordinates
+
+GOT_joined <- GOT_joined %>%
+  # 1) Remove any rows that are controls (controlType not NA/empty)
+  filter(is.na(controlType) | controlType == "") %>%
+
+  # 2) Drop any rows missing coordinates
+  filter(
+    !is.na(decimalLatitude),
+    !is.na(decimalLongitude)
+  ) %>%
+
+  # 3) Work within each original eventID.x
+  group_by(eventID.x) %>%
+  mutate(
+    row_suffix = row_number(),
+
+    # eventID for every remaining row (all have coords now)
+    eventID = paste0(eventID.x, "-", row_suffix),
+
+    # occurrenceID for every remaining row (present + absent)
+    occurrenceID = if_else(
+      is.na(occurrenceID),
+      paste0("DFO-QBC-12S:", materialSampleID, "-", row_suffix),
+      paste0(occurrenceID, "-", row_suffix)
+    )
+  ) %>%
+  ungroup() %>%
+  select(-row_suffix)
+
+
+#Use this code if you have values for seq_run_id and lib_id in a separate file (obtain this information from the group that sequenced your data)
+#This code will likely need to be edited dependent on how the separate file is formatted, I will keep it commented out for now for simplicity
+
+#map_raw <- read.csv("OBIS information(COI).csv", stringsAsFactors = FALSE)
+
+#map_long <- bind_rows(
+#  map_raw %>%
+#    select(seq_run_id, lib_id),
+#  map_raw %>%
+#    select(seq_run_id = seq_run_id.1,
+#           lib_id    = lib_id.1)
+#) %>%
+#  # drop completely empty rows
+#  filter(!is.na(lib_id) & lib_id != "")
+
+#map_clean <- map_long %>%
+#  # remove ENEG controls if you *don’t* want them mapped
+#  filter(!str_detect(lib_id, "ENEG")) %>%
+#  mutate(
+#    # take digits from start of string
+#    materialSampleID = str_extract(lib_id, "^[0-9]+"),
+#    materialSampleID = as.character(materialSampleID)   # keep as character
+#  ) %>%
+#  distinct(materialSampleID, .keep_all = TRUE)
+
+#map_clean <- map_clean %>%
+#  # treat blanks as NA
+#  mutate(seq_run_id = na_if(seq_run_id, "")) %>%
+#  # fill seq_run_id down within the whole table
+#  fill(seq_run_id)
+
+
+#Set up the Occurrence core dataframe
+#Edit details of each column name specific to your metadata (see glossary in SOP)
+#If including seq_run_id and lib_id from above, remove hashtags at the bottom of this script
+
+occurrence <- GOT_joined %>%
+  mutate(
+    materialSampleID = as.character(materialSampleID),
+    protocol_ID = protocol_ID.x,
+    protocolVersion = protocolVersion.x,
+    project_contact = ownerContact,
+    bibliographicCitation = bibliographicCitation,
+    basisOfRecord = "MaterialSample",
+    locationID = samplingStation,
+    materialSampleID = materialSampleID,
+    samp_name = materialSampleID,
+    technical_rep_id = "1",
+    recordedBy = recordedBy,
+    geo_loc_name = "Canada: Quebec, Gulf of St. Lawrence",
+    nameAccordingTo = "WoRMS",
+    country = "Canada",
+    datasetID = "DFO-QBC-12S",
+    decimalLatitude = decimalLatitude,
+    decimalLongitude = decimalLongitude,
+    minimumDepthInMeters = sampleDepth,
+    maximumDepthInMeters = sampleDepth,
+    samp_collect_device = case_when(
+      protocolVersion.x == 1 ~ "bottle",
+      protocolVersion.x == 2 ~ "Niskin bottle",
+    ),
+    samp_size = "2",
+    samp_size_unit = "L",
+    size_frac = case_when(
+      protocolVersion.x == 1 ~ "1.5",
+      protocolVersion.x == 2 ~ "1.2",
+    ),
+    filter_material = "glass fiber",
+    filter_name = NA_character_,
+    filtrationType = "Vacuum",
+    samp_store_sol = case_when(
+      protocolVersion.x == 1 ~ "silica beads",
+      protocolVersion.x == 2 ~ "no buffer",
+    ),
+    samp_store_temp = case_when(
+      protocolVersion.x == 1 ~ NA_character_,
+      protocolVersion.x == 2 ~ "-20",
+    ),
+    nucl_acid_ext = "PON_020302_V01",
+    nucl_acid_ext_kit = "DNeasy Power Water",
+    eventDate = eventDate,
+    occurrenceID = occurrenceID,
+    occurrenceStatus = case_when(
+      organismQuantity > 0 ~ "present",
+      organismQuantity == 0 ~ "absent",
+      TRUE ~ NA_character_
+    ),
+    language = "en",
+    materialSampleID = materialSampleID,
+    month = month(eventDate),
+    bibliographicCitation = bibliographicCitation,
+    year = year(eventDate),
+    scientificNameAuthorship = ownerContact,
+    occurrenceID = occurrenceID,
+    samp_name = materialSampleID,
+    project_name = "Quebec: Gulf of St. Lawrence 2020-2022",
+    scientificName = scientificName,
+    env_broad_scale = "marine biome (ENVO:00000447)",
+    env_local_scale = case_when(
+      protocolVersion.x == 1 ~ "water surface (ENVO:01001191)",
+      protocolVersion.x == 2 ~ "marine pelagic zone (ENVO:00000208)",
+    ),
+    env_medium = "sea water (ENVO:00002149)",
+    targetTaxonomicAssay = "eukaryotes",
+    assay_name = "12S-MiMammal (metabarcoding)",
+    assay_type = "metabarcoding",
+    target_gene = target_gene,
+    target_subfragment = target_subfragment,
+    seq_meth = "Illumina MiSeq [OBI_0002003]",
+    seq_kit = NA_character_,
+    ref_db = "NCBI-nt",
+    otu_db = "Maurice Lamontagne Institute metabarcoding pipeline v 0.1.0",
+    otu_seq_comp_appr = "blastn;2.12.0+",
+    pcr_primer_forward = "GGGTTGGTAAATTTCGTGCCAGC",
+    pcr_primer_reverse = "CATAGTGGGGTATCTAATCCCAGTTTG",
+    pcr_primer_name_forward = "MiMammal-U_F",
+    pcr_primer_name_reverse = "MiMammal-U_R",
+    pcr_primer_reference = "https://doi.org/10.1111/1755-0998.12690",
+    identificationRemarks = identificationRemarks,
+    checkls_ver = "1.0.2",
+    sampleSizeValue = sampleSizeValue,
+    sampleSizeUnit = sampleSizeUnit,
+    filter_passive_active_0_1 = "1",
+    samp_category = "sample",
+    project_id = "DFO-QBC-12S",
+    pcr_0_1 = "1",
+    LClabel = NA_character_
+  )
+#%>%
+#  filter(
+#    !is.na(minimumDepthInMeters),
+#    !is.na(maximumDepthInMeters),
+#    !is.na(target_gene),
+#    !is.na(scientificName)
+    #  ) %>%
+    #  left_join(
+    #    map_clean, by = "materialSampleID"
+#  )
+
+#Look up AphiaID (taxonID) from WoRMS by ScientificName
+
+species_lookup <- occurrence %>%
+  distinct(scientificName) %>%
+  mutate(
+    taxonID = map_int(
+      scientificName,
+      ~ {
+        # Keep NAs as NAs
+        if (is.na(.x) || .x == "") return(NA_integer_)
+
+        id <- tryCatch(
+          wm_name2id(.x, marine_only = FALSE),
+          error = function(e) NA
+        )
+
+        if (is.null(id) || length(id) == 0 || is.na(id[1])) {
+          NA_integer_
+        } else {
+          as.integer(id[1])
+        }
+      }
+    )
+  )
+
+# Join taxonID into occurrence, but DO NOT drop rows with no match
+occurrence <- occurrence %>%
+  select(-any_of(c("taxonID", "scientificNameID",
+                   "kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "aphiaID"))) %>%  # we'll re-create these
+  left_join(species_lookup, by = "scientificName") %>%
+  mutate(
+    # optional helper flag: which rows had a WoRMS match?
+    worms_match = !is.na(taxonID),
+    # keep AphiaID explicitly if you want it separate from taxonID
+    aphiaID = taxonID
+  )
+
+
+# Build a taxonomy lookup for each unique non-NA AphiaID
+
+# Helper to pull a rank from wm_classification()
+.rank_val <- function(classif, rank_name) {
+  if (is.null(classif)) return(NA_character_)
+  if (!all(c("rank", "scientificname") %in% names(classif))) return(NA_character_)
+  v <- classif$scientificname[classif$rank == rank_name]
+  if (length(v) == 0) NA_character_ else as.character(v[1])
+}
+
+get_taxonomy_for_id <- function(id) {
+  classif <- tryCatch(wm_classification(id), error = function(e) NULL)
+  rec     <- tryCatch(wm_record(id),        error = function(e) NULL)
+
+  tibble(
+    taxonID           = id,
+    scientificNameID  = if (!is.null(rec) && "lsid" %in% names(rec))
+      rec$lsid else NA_character_,
+    kingdom           = .rank_val(classif, "Kingdom"),
+    phylum            = .rank_val(classif, "Phylum"),
+    class             = .rank_val(classif, "Class"),
+    order             = .rank_val(classif, "Order"),
+    family            = .rank_val(classif, "Family"),
+    genus             = .rank_val(classif, "Genus")
+  )
+}
+
+unique_ids <- occurrence$taxonID %>%
+  unique() %>%
+  purrr::discard(is.na)
+
+taxonomy_lookup <- map_dfr(unique_ids, get_taxonomy_for_id)
+
+
+#Join WoRMS taxonomy back to occurrence
+
+occurrence <- occurrence %>%
+  select(-any_of(c("kingdom", "phylum", "class",
+                   "order", "family", "genus",
+                   "scientificNameID"))) %>%
+  left_join(taxonomy_lookup, by = "taxonID")
+
+
+
+#DNA derived data extension: Link DNA sequences from otu_df
+
+dna_df <- occurrence
+
+###########################################
+#Run Quality Control checks
+#NOTE: problems in quality control checks likely occur from repeating occurrenceIDs resulting from empty values at the bottom of a dataframe (happens if there is not a clean merge between the GOTeDNA "sample metadata" and "sample metabarcoding" sheets)
+
+occur <- occurrence #change name of dataframe in case quality control checks fail and you would like to view the original dataframe for problems (Using the code: View("occurrence") )
+
+occur2 <- occur %>%
+  mutate(
+    decimalLongitude = as.character(decimalLongitude),
+    decimalLatitude  = as.character(decimalLatitude),
+
+    # common cleanup (commas, extra spaces)
+    decimalLongitude = str_replace_all(decimalLongitude, ",", ".") %>% str_trim(),
+    decimalLatitude  = str_replace_all(decimalLatitude,  ",", ".") %>% str_trim(),
+
+    # parse to numeric (non-numeric becomes NA)
+    decimalLongitude = readr::parse_number(decimalLongitude),
+    decimalLatitude  = readr::parse_number(decimalLatitude)
+  ) %>%
+  filter(!is.na(decimalLongitude), !is.na(decimalLatitude))
+
+plot_map_leaflet(occur2)
+
+
+dna_df <- dna_df %>%
+  filter(str_detect(occurrenceID, "MiMam"))
+
+dna <- dna_df
+
+
+#Check that the taxa names match with WoRMS and merge any corrections
+worms <- match_taxa(unique(occur2$scientificName)) #select "y" and choose option 1 each time
+
+occur <- merge(occur2, worms, by="scientificName")
+colnames(occur2)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
+
+#Check that all required fields are present in the occurrence table
+#Check the uniqueness of the occurrenceID field (Want to = TRUE)
+
+length(occur$occurrenceID) == length(unique(occur$occurrenceID))
+
+#Can view the dataframe and filter to remove empty values from the organismQuantity column if required (remove hashtags)
+
+#View("occur ")
+
+# occur <- occur %>%
+#  filter(
+#  !is.na(organismQuantity)
+#)
+
+
+#If quality control is clear, select the term names that are specific to each core and extension file
+cleaned_occ <- occur %>%
+  select(
+    occurrenceID, bibliographicCitation, materialSampleID, eventDate, decimalLatitude, decimalLongitude, scientificName,
+    organismQuantity, organismQuantityType, sampleSizeValue, sampleSizeUnit,  associatedSequences,  eventID,
+    basisOfRecord, locationID,  recordedBy, country, datasetID, occurrenceStatus, minimumDepthInMeters, maximumDepthInMeters,
+    language,  month, year, scientificNameAuthorship, taxonID, kingdom, phylum, class, order, family, genus
+  )
+
+cleaned_dna <- dna %>%
+  select(
+    target_gene, target_subfragment, samp_name, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
+    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
+    pcr_primer_reference, occurrenceID
+  )
+
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+#write csv file and submit to OBIS
+write.csv(cleaned_dna, "OBIS_QBC_12S_MiMam_dnaderiveddata.csv")
+
+
+#Create a dataframe for the extended Measurement or Fact extension
+
+emof <- dna_df %>%
+  mutate(
+    occurrenceID,
+    measurementType = NA_character_, #This column is where all the unique term names from GOTeDNA and FAIRe go
+    measurementValue = NA_character_, #
+    measurementUnit = NA_character_,
+    measurementTypeID = NA_character_, #This is where the URL link to each of the term names go
+    measurementValueID = NA_character_,
+    measurementUnitID = NA_character_,
+    measurementRemarks = NA_character_
+  ) %>%
+  select(
+    occurrenceID, measurementType, measurementValue, measurementUnit, measurementTypeID, measurementValueID, measurementUnitID, measurementUnitID, measurementRemarks
+  )
+
+
+#Map the URL to the origin of each term name
+
+url_map <- c(
+  protocol_ID              = "https://github.com/GOTeDNA-OBON",
+  protocolVersion          = "https://github.com/GOTeDNA-OBON",
+  LClabel                  = "https://github.com/GOTeDNA-OBON",
+  ownerContact             = "https://github.com/GOTeDNA-OBON",
+  samplingStation          = "https://github.com/GOTeDNA-OBON",
+  filtrationType           = "https://github.com/GOTeDNA-OBON",
+  totalDNAconc             = "https://github.com/GOTeDNA-OBON",
+  unitsDNAconc             = "https://github.com/GOTeDNA-OBON",
+  dateFiltration           = "https://github.com/GOTeDNA-OBON",
+  timeFiltration           = "https://github.com/GOTeDNA-OBON",
+  volumeFiltered           = "https://github.com/GOTeDNA-OBON",
+  depthWaterTemp           = "https://github.com/GOTeDNA-OBON",
+  occurrenceID             = "https://manual.obis.org/darwin_core.html"
+)
+
+emof <- dna_df %>%
+  select(
+    samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
+    assay_name, assay_type, targetTaxonomicAssay, samp_size_unit, filter_material, filter_name, filtrationType,
+    samp_store_temp, samp_collect_device,
+    samp_store_sol, nucl_acid_ext_kit, geo_loc_name, technical_rep_id, filtrationType,
+    project_contact, protocol_ID, protocolVersion, dateFiltration, timeFiltration,
+    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1
+  ) %>%
+  distinct() %>%
+  mutate(across(-occurrenceID, as.character)) %>%
+  pivot_longer(
+    cols = -occurrenceID,
+    names_to = "measurementType",
+    values_to = "measurementValue"
+  ) %>%
+  mutate(
+    measurementTypeID = dplyr::recode(
+      measurementType,
+      !!!url_map,
+      .default = "https://github.com/FAIR-eDNA/FAIRe_checklist"   #Default URL is FAIRe
+    ),
+    measurementUnit    = NA_character_,
+    measurementValueID = NA_character_,
+    measurementUnitID  = NA_character_,
+    measurementRemarks = NA_character_
+  )
+
+#write csv file and submit to OBIS
+write.csv(emof, "OBIS_QBC_12S_MiMam_emof.csv")
+
