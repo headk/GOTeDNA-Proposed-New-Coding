@@ -69,7 +69,7 @@ df_Metadata_SAB2024_12S <- data.frame(
 #Dataframe created! Next, we need to fill it with the ESI Coastal 2024 metadata file
 
 df_Metadata_SAB2024_12S <- SAB2024_meta  %>%
-
+  
   mutate(
     Project_ID = "St Anns Bank 2024",
     GOTeDNA_ID = "22",
@@ -91,7 +91,7 @@ df_Metadata_SAB2024_12S <- SAB2024_meta  %>%
     dateFiltration = NA_character_,
     timeFiltration = NA_character_,
     controlType = controlType,
-    LClabel = NA_character_,
+    LClabel = "We acknowledge that this work has taken place in Mi’kma’ki, the ancestral and unceded territory of the Mi’kmaq People, who are part of the Wabanaki (Dawnland Confederacy). Our relationship to this place is one of a visiting scientist, learning from its waters. Our commitment is to move beyond words by ensuring scientific findings are shared publicly and accompanied by this acknowledgement to inform both science and a respectful relationship to the Mi’kmaq communities who have stewarded these lands and waters since time immemorial. We acknowledge their enduring sovereignty, knowledge, and contributions, past, present, and future.",
     samplingStation = samplingStation,
     waterColumnDepth = NA_character_,
     tide = tide,
@@ -110,7 +110,7 @@ df_Metadata_SAB2024_12S <- SAB2024_meta  %>%
 
 
 df_Metadata_Gully2024_12S <- SAB2024_meta  %>%
-
+  
   mutate(
     Project_ID = "Gully 2024",
     GOTeDNA_ID = "22",
@@ -151,7 +151,7 @@ df_Metadata_Gully2024_12S <- SAB2024_meta  %>%
 
 
 df_Metadata_Fundian2024_12S <- SAB2024_meta  %>%
-
+  
   mutate(
     Project_ID = "Fundian Channel - Browns Bank 2024",
     GOTeDNA_ID = "22",
@@ -806,7 +806,7 @@ occurrence <- GOT22_joined %>%
     assay_type = "metabarcoding",
     target_gene = target_gene,
     target_subfragment = target_subfragment,
-    seq_meth = "Illumina MiSeq [OBI_0002003]",
+    instrument = "Illumina MiSeq [OBI_0002003]",
     pcr_primer_forward = "CGTGCCAGCCACCGCGGTT",
     pcr_primer_reverse = "CATAGTGGGGTATCTAATCCCAGTTTG",
     pcr_primer_name_forward = "12S_248F_RADS_For",
@@ -822,6 +822,9 @@ occurrence <- GOT22_joined %>%
     samp_collec_device = samp_collect_device,
     project_id = Project_ID,
     pcr_0_1 = "1",
+    samp_mat_process = "filtration",
+    platform = "ILLUMINA",
+    tax_assign_cat = "sequence similarity"
   ) %>%
   
   #filter(
@@ -960,7 +963,7 @@ occur <- occurrence
 dna <- dna_df
 
 #Check that the taxa names match with WoRMS
-worms <- match_taxa(unique(occur$scientificName)) #choose option 1 each time
+#worms <- match_taxa(unique(occur$scientificName)) #choose option 1 each time
 
 occur <- merge(occur, worms, by="scientificName")
 colnames(occur)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
@@ -980,9 +983,10 @@ cleaned_occ <- occur %>%
 
 cleaned_dna <- dna %>%
   select(
-    target_gene, target_subfragment, samp_name, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
-    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
-    pcr_primer_reference, dna_sequence, occurrenceID, samp_collec_device
+    project_name, dna_sequence, target_gene, pcr_primer_forward, pcr_primer_reverse, samp_name,
+    env_broad_scale, env_local_scale, env_medium, samp_mat_process, size_frac, samp_size,
+    samp_size_unit, otu_db, seq_kit, otu_seq_comp_appr, pcr_primer_name_forward, pcr_primer_name_reverse,
+    pcr_primer_reference,  occurrenceID
   )
 
 ##Write updated + cleaned files; When confident in the data, write these files and put into OBIS
@@ -1014,28 +1018,22 @@ emof <- dna_df %>%
 #Insert proper FAIRe names from occurrence below
 
 url_map <- c(
-  GOTeDNAprotocol_ID              = "https://github.com/GOTeDNA-OBON",
-  GOTeDNAprotocolVersion          = "https://github.com/GOTeDNA-OBON",
   LClabel                  = "https://github.com/GOTeDNA-OBON",
   ownerContact             = "https://github.com/GOTeDNA-OBON",
-  samplingStation          = "https://github.com/GOTeDNA-OBON",
-  filtrationType           = "https://github.com/GOTeDNA-OBON",
   totalDNAconc             = "https://github.com/GOTeDNA-OBON",
   unitsDNAconc             = "https://github.com/GOTeDNA-OBON",
   dateFiltration           = "https://github.com/GOTeDNA-OBON",
   timeFiltration           = "https://github.com/GOTeDNA-OBON",
-  volumeFiltered           = "https://github.com/GOTeDNA-OBON",
   depthWaterTemp           = "https://github.com/GOTeDNA-OBON",
   occurrenceID             = "https://manual.obis.org/darwin_core.html"
 )
 
 emof <- dna_df %>%
   select(
-    seq_id, samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
-    assay_name, assay_type, targetTaxonomicAssay, samp_collect_device, samp_size_unit, filtrationType, filter_material,
-    filter_name, samp_store_sol, samp_store_temp, nucl_acid_ext_kit, nucl_acid_ext_modify, geo_loc_name, technical_rep_id,
-    project_contact, GOTeDNAprotocol_ID, GOTeDNAprotocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
-    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1, seq_run_id, lib_id
+    seq_id, samp_category, checkls_ver, assay_name, assay_type, targetTaxonomicAssay,
+    geo_loc_name, technical_rep_id, project_contact, seq_run_id, lib_id, project_id,
+    pcr_0_1, samp_store_sol, samp_store_temp, platform, instrument, tax_assign_cat,
+    LClabel, occurrenceID, nucl_acid_ext_kit, filter_material
   ) %>%
   distinct() %>%
   mutate(across(-occurrenceID, as.character)) %>%
@@ -1278,7 +1276,7 @@ occurrence <- GOT22_joined %>%
     assay_type = "metabarcoding",
     target_gene = target_gene,
     target_subfragment = target_subfragment,
-    seq_meth = "Illumina MiSeq [OBI_0002003]",
+    instrument = "Illumina MiSeq [OBI_0002003]",
     pcr_primer_forward = "GGWACWGGWTGAACWGTWTAYCCYCC",
     pcr_primer_reverse = "ACTTTCGTTCTTGATYRA",
     pcr_primer_name_forward = "mICOIintF",
@@ -1294,6 +1292,9 @@ occurrence <- GOT22_joined %>%
     samp_collec_device = samp_collect_device,
     project_id = Project_ID,
     pcr_0_1 = "1",
+    samp_mat_process = "filtration",
+    platform = "ILLUMINA",
+    tax_assign_cat = "sequence similarity"
   ) %>%
   
   #filter(
@@ -1431,7 +1432,7 @@ occur <- occurrence
 dna <- dna_df
 
 #Check that the taxa names match with WoRMS
-worms <- match_taxa(unique(occur$scientificName)) #choose option 1 each time of match options
+#worms <- match_taxa(unique(occur$scientificName)) #choose option 1 each time of match options
 
 #occur <- merge(occur, worms, by="scientificName")
 colnames(occur)[colnames(occur) == "scientificNameID.y"] = "scientificNameID"
@@ -1451,9 +1452,10 @@ cleaned_occ <- occur %>%
 
 cleaned_dna <- dna %>%
   select(
-    target_gene, target_subfragment, samp_name, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
-    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
-    pcr_primer_reference, dna_sequence, occurrenceID, samp_collec_device
+    project_name, dna_sequence, target_gene, pcr_primer_forward, pcr_primer_reverse, samp_name,
+    env_broad_scale, env_local_scale, env_medium, samp_mat_process, size_frac, samp_size,
+    samp_size_unit, otu_db, seq_kit, otu_seq_comp_appr, pcr_primer_name_forward, pcr_primer_name_reverse,
+    pcr_primer_reference,  occurrenceID
   )
 
 ##Write updated + cleaned files; When confident in the data, write these files and put into OBIS
@@ -1502,11 +1504,10 @@ url_map <- c(
 
 emof <- dna_df %>%
   select(
-    seq_id, samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
-    assay_name, assay_type, targetTaxonomicAssay, samp_collect_device, samp_size_unit, filtrationType, filter_material,
-    filter_name, samp_store_sol, samp_store_temp, nucl_acid_ext_kit, nucl_acid_ext_modify, geo_loc_name, technical_rep_id,
-    project_contact, GOTeDNAprotocol_ID, GOTeDNAprotocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
-    depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1, seq_run_id, lib_id
+    seq_id, samp_category, checkls_ver, assay_name, assay_type, targetTaxonomicAssay,
+    geo_loc_name, technical_rep_id, project_contact, seq_run_id, lib_id, project_id,
+    pcr_0_1, samp_store_sol, samp_store_temp, platform, instrument, tax_assign_cat,
+    LClabel, occurrenceID, nucl_acid_ext_kit, filter_material
   ) %>%
   distinct() %>%
   mutate(across(-occurrenceID, as.character)) %>%
