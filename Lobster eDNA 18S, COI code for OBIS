@@ -1,4 +1,4 @@
-The code below has been edited for the Lobster eDNA 18S, COI-1, and COI-2 (APC0189) data. Note, in OBIS, only one occurrence file for COI was included as both COI-1 labels and COI-2 labels were used in the same file.
+#The code below has been edited for the Lobster eDNA 18S, COI-1, and COI-2 (APC0189) data. Note, in OBIS, only one occurrence file for COI was included as both COI-1 labels and COI-2 labels were used in the same file.
 
 ##Example code for preparing three csv files (Occurrence, DNA Derived Data, extendedMeasurementOrFact) for OBIS submission from the GOTeDNA Sample Template
 #This code has been prepared for the dataset "DFO Monthly GRDI Survey eDNA metabarcoding (COI) in the Bay of Fundy 2019-2021", which is publicly available in OBIS: https://obis.org/dataset/83040ea6-0e87-4e4e-937d-1b826349c464
@@ -77,24 +77,24 @@ GOT_joined <- GOT_joined %>%
   mutate(
     # Always work from a character version
     eventDate_chr = as.character(eventDate),
-
+    
     # Try to interpret as numeric (Excel serial)
     eventDate_num = suppressWarnings(as.numeric(eventDate_chr)),
-
+    
     # Fix 2-digit year dates like 21/8/19 -> 21/8/2019
     eventDate_chr_2y = if_else(
       str_detect(eventDate_chr, "^\\d{1,2}/\\d{1,2}/\\d{2}$"),
       sub("(\\d{1,2}/\\d{1,2}/)(\\d{2})$", "\\120\\2", eventDate_chr),
       NA_character_
     ),
-
+    
     eventDate = case_when(
       # 1) Excel numeric serials (42293 etc.)
       !is.na(eventDate_num) ~ as.Date(eventDate_num, origin = "1899-12-30"),
-
+      
       # 2) dd/mm/yy we just expanded to dd/mm/20yy
       !is.na(eventDate_chr_2y) ~ as.Date(eventDate_chr_2y, format = "%d/%m/%Y"),
-
+      
       # 3) Normal dd/mm/yyyy strings
       TRUE ~ as.Date(eventDate_chr, format = "%d/%m/%Y")
     )
@@ -107,21 +107,21 @@ GOT_joined <- GOT_joined %>%
 GOT_joined <- GOT_joined %>%
   # 1) Remove any rows that are controls (controlType not NA/empty)
   filter(is.na(controlType) | controlType == "") %>%
-
+  
   # 2) Drop any rows missing coordinates
   filter(
     !is.na(decimalLatitude),
     !is.na(decimalLongitude)
   ) %>%
-
+  
   # 3) Work within each original eventID.x
   group_by(eventID.x) %>%
   mutate(
     row_suffix = row_number(),
-
+    
     # eventID for every remaining row (all have coords now)
     eventID = paste0(eventID.x, "-", row_suffix),
-
+    
     # occurrenceID for every remaining row (present + absent)
     occurrenceID = if_else(
       is.na(occurrenceID),
@@ -224,9 +224,8 @@ occurrence <- GOT_joined %>%
     target_subfragment = target_subfragment,
     seq_meth = "Illumina MiSeq [OBI_0002003]",
     seq_kit = "MiSeq Reagent Kit v3 (Illumina)",
-    ref_db = "BOLD database that came with the barque download",
-    otu_db = "barque v1.7.2 (Mathon et al. (2021))",
-    otu_seq_comp_appr = "blastn (https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&PAGE_TYPE=BlastSearch&LINK_LOC=blasthome)",
+    otu_db = "BOLD",
+    tax_assign_cat = "VSEARCH",
     pcr_primer_forward = "GGWACWGGWTGAACWGTWTAYCCYCC",
     pcr_primer_reverse = "TAIACYTCIGGRTGICCRAARAAYCA",
     pcr_primer_name_forward = "mlCOIintF",
@@ -238,6 +237,7 @@ occurrence <- GOT_joined %>%
     sampleSizeUnit = sampleSizeUnit,
     filter_passive_active_0_1 = "1",
     samp_category = "sample",
+    LClabel = "We acknowledge that this work has taken place on the unceded, ancestral territory of the Passamaquoddy, Mi'kma'ki, Wabanaki (Dawnland Confederacy), N’dakina (Abenaki / Abénaquis) peoples. Our commitment to this place is rooted in the act of acknowledgement—of these nations, their languages of Passamaquoddy, Maliseet-Passamaquoddy, Mi'kmaq, and the enduring Peace and Friendship Treaties. In the spirit of these treaties, our stewardship is an action: to ensure the data from these waters is shared publicly, accompanied by this acknowledgement, so that care for this marine protected area is informed by both science and a respectful relationship to the Indigenous lands and waters that sustain us all.",
     project_id = "DFO-BoF-2018-19-COI",
     pcr_0_1 = "1"
   ) %>%
@@ -261,12 +261,12 @@ species_lookup <- occurrence %>%
       ~ {
         # Keep NAs as NAs
         if (is.na(.x) || .x == "") return(NA_integer_)
-
+        
         id <- tryCatch(
           wm_name2id(.x, marine_only = FALSE),
           error = function(e) NA
         )
-
+        
         if (is.null(id) || length(id) == 0 || is.na(id[1])) {
           NA_integer_
         } else {
@@ -304,7 +304,7 @@ occurrence <- occurrence %>%
 get_taxonomy_for_id <- function(id) {
   classif <- tryCatch(wm_classification(id), error = function(e) NULL)
   rec     <- tryCatch(wm_record(id),        error = function(e) NULL)
-
+  
   tibble(
     taxonID           = id,
     scientificNameID  = if (!is.null(rec) && "lsid" %in% names(rec))
@@ -429,7 +429,7 @@ cleaned_occ <- occur %>%
 cleaned_dna <- dna %>%
   select(
     target_gene, target_subfragment, samp_name, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
-    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
+    seq_meth, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
     pcr_primer_reference, dna_sequence, occurrenceID
   )
 
@@ -480,7 +480,7 @@ emof <- dna_df %>%
   select(
     seq_id, samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
     assay_name, assay_type, targetTaxonomicAssay, samp_size_unit, filter_material,
-    samp_store_sol, nucl_acid_ext_kit, geo_loc_name, technical_rep_id,
+    samp_store_sol, nucl_acid_ext_kit, geo_loc_name, technical_rep_id, tax_assign_cat,
     project_contact, protocol_ID, protocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
     depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1
   ) %>%
@@ -571,24 +571,24 @@ GOT_joined <- GOT_joined %>%
   mutate(
     # Always work from a character version
     eventDate_chr = as.character(eventDate),
-
+    
     # Try to interpret as numeric (Excel serial)
     eventDate_num = suppressWarnings(as.numeric(eventDate_chr)),
-
+    
     # Fix 2-digit year dates like 21/8/19 -> 21/8/2019
     eventDate_chr_2y = if_else(
       str_detect(eventDate_chr, "^\\d{1,2}/\\d{1,2}/\\d{2}$"),
       sub("(\\d{1,2}/\\d{1,2}/)(\\d{2})$", "\\120\\2", eventDate_chr),
       NA_character_
     ),
-
+    
     eventDate = case_when(
       # 1) Excel numeric serials (42293 etc.)
       !is.na(eventDate_num) ~ as.Date(eventDate_num, origin = "1899-12-30"),
-
+      
       # 2) dd/mm/yy we just expanded to dd/mm/20yy
       !is.na(eventDate_chr_2y) ~ as.Date(eventDate_chr_2y, format = "%d/%m/%Y"),
-
+      
       # 3) Normal dd/mm/yyyy strings
       TRUE ~ as.Date(eventDate_chr, format = "%d/%m/%Y")
     )
@@ -601,21 +601,21 @@ GOT_joined <- GOT_joined %>%
 GOT_joined <- GOT_joined %>%
   # 1) Remove any rows that are controls (controlType not NA/empty)
   filter(is.na(controlType) | controlType == "") %>%
-
+  
   # 2) Drop any rows missing coordinates
   filter(
     !is.na(decimalLatitude),
     !is.na(decimalLongitude)
   ) %>%
-
+  
   # 3) Work within each original eventID.x
   group_by(eventID.x) %>%
   mutate(
     row_suffix = row_number(),
-
+    
     # eventID for every remaining row (all have coords now)
     eventID = paste0(eventID.x, "-", row_suffix),
-
+    
     # occurrenceID for every remaining row (present + absent)
     occurrenceID = if_else(
       is.na(occurrenceID),
@@ -718,9 +718,8 @@ occurrence <- GOT_joined %>%
     target_subfragment = target_subfragment,
     seq_meth = "Illumina MiSeq [OBI_0002003]",
     seq_kit = "MiSeq Reagent Kit v3 (Illumina)",
-    ref_db = "BOLD database that came with the barque download",
-    otu_db = "barque v1.7.2 (Mathon et al. (2021))",
-    otu_seq_comp_appr = "blastn (https://blast.ncbi.nlm.nih.gov/Blast.cgi?PROGRAM=blastn&PAGE_TYPE=BlastSearch&LINK_LOC=blasthome)",
+    otu_db = "BOLD",
+    tax_assign_cat = "VSEARCH",
     pcr_primer_forward = "GGTCAACAAATCATAAAGATATTGG",
     pcr_primer_reverse = "GGIGGRTAIACIGTTCAICC",
     pcr_primer_name_forward = "LCO1490",
@@ -732,6 +731,7 @@ occurrence <- GOT_joined %>%
     sampleSizeUnit = sampleSizeUnit,
     filter_passive_active_0_1 = "1",
     samp_category = "sample",
+    LClabel = "We acknowledge that this work has taken place on the unceded, ancestral territory of the Passamaquoddy, Mi'kma'ki, Wabanaki (Dawnland Confederacy), N’dakina (Abenaki / Abénaquis) peoples. Our commitment to this place is rooted in the act of acknowledgement—of these nations, their languages of Passamaquoddy, Maliseet-Passamaquoddy, Mi'kmaq, and the enduring Peace and Friendship Treaties. In the spirit of these treaties, our stewardship is an action: to ensure the data from these waters is shared publicly, accompanied by this acknowledgement, so that care for this marine protected area is informed by both science and a respectful relationship to the Indigenous lands and waters that sustain us all.",
     project_id = "DFO-BoF-2018-19-COI",
     pcr_0_1 = "1"
   ) %>%
@@ -755,12 +755,12 @@ species_lookup <- occurrence %>%
       ~ {
         # Keep NAs as NAs
         if (is.na(.x) || .x == "") return(NA_integer_)
-
+        
         id <- tryCatch(
           wm_name2id(.x, marine_only = FALSE),
           error = function(e) NA
         )
-
+        
         if (is.null(id) || length(id) == 0 || is.na(id[1])) {
           NA_integer_
         } else {
@@ -798,7 +798,7 @@ occurrence <- occurrence %>%
 get_taxonomy_for_id <- function(id) {
   classif <- tryCatch(wm_classification(id), error = function(e) NULL)
   rec     <- tryCatch(wm_record(id),        error = function(e) NULL)
-
+  
   tibble(
     taxonID           = id,
     scientificNameID  = if (!is.null(rec) && "lsid" %in% names(rec))
@@ -923,7 +923,7 @@ cleaned_occ <- occur %>%
 cleaned_dna <- dna %>%
   select(
     target_gene, target_subfragment, samp_name, size_frac, samp_size, project_name, env_broad_scale, env_local_scale, env_medium,
-    seq_meth, ref_db, otu_seq_comp_appr, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
+    seq_meth, otu_db, pcr_primer_forward, pcr_primer_reverse, pcr_primer_name_forward, pcr_primer_name_reverse,
     pcr_primer_reference, dna_sequence, occurrenceID
   )
 
@@ -973,7 +973,7 @@ emof <- dna_df %>%
   select(
     seq_id, samp_category, filter_passive_active_0_1, checkls_ver, seq_kit,
     assay_name, assay_type, targetTaxonomicAssay, samp_size_unit, filter_material,
-    samp_store_sol, nucl_acid_ext_kit, geo_loc_name, technical_rep_id,
+    samp_store_sol, nucl_acid_ext_kit, geo_loc_name, technical_rep_id, tax_assign_cat,
     project_contact, protocol_ID, protocolVersion, totalDNAconc, unitsDNAconc, dateFiltration, timeFiltration, volumeFiltered,
     depthWaterTemp, samplingStation, LClabel, ownerContact, occurrenceID, project_id, pcr_0_1
   ) %>%
@@ -998,4 +998,3 @@ emof <- dna_df %>%
 
 #write csv file and submit to OBIS
 write.csv(emof, "OBIS_Lobster_COI-2_emof.csv")
-
