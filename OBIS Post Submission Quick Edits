@@ -1,0 +1,502 @@
+
+#DFO Lobster + Finfish (18S)
+dna <- read.csv("C:/Users/HEADK/Desktop/OBIS_prep/OBIS_Lobster_18S_dnaderiveddata.csv")
+emof <- read.csv("C:/Users/HEADK/Desktop/OBIS_prep/OBIS_Lobster_18S_emof.csv")
+
+#Change otu_db, otu_seq_comp_appr, tax_assign_cat, LClabel
+
+#lobster and finfish 18S dataset trial code
+
+dna <- dna %>%
+  mutate(otu_db = "SYLVA") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+write.csv(dna, "OBIS_Lobster_18S_dnaderiveddata.csv")
+
+
+emof <- emof %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "We acknowledge that this work has taken place on the unceded, ancestral territory of the Passamaquoddy, Mi'kma'ki, Wabanaki (Dawnland Confederacy), N’dakina (Abenaki / Abénaquis) peoples. Our commitment to this place is rooted in the act of acknowledgement—of these nations, their languages of Passamaquoddy, Maliseet-Passamaquoddy, Mi'kmaq, and the enduring Peace and Friendship Treaties. In the spirit of these treaties, our stewardship is an action: to ensure the data from these waters is shared publicly, accompanied by this acknowledgement, so that care for this marine protected area is informed by both science and a respectful relationship to the Indigenous lands and waters that sustain us all.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof <- bind_rows(emof, new_rows)
+
+write.csv(emof, "OBIS_Lobster_18S_emof.csv")
+
+#---------------------------------------------------------------------------------------------------------------------------
+
+#Halifax GRDI COI
+
+dna_HAL <- read.csv("C:/Users/HEADK/Desktop/OBIS_prep/obis_grdi_hal_coi_dnaderiveddata_cleaned_updated.csv")
+emof_HAL <- read.csv("C:/Users/HEADK/Desktop/OBIS_prep/obis_grdi_hal_coi_emof_updated1.csv")
+
+dna_HAL <- dna_HAL %>%
+  mutate(otu_db = "BOLD") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+write.csv(dna_HAL, "obis_grdi_hal_coi_dnaderiveddata_cleaned_updated.csv")
+
+
+emof_HAL <- emof_HAL %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "This work has taken place in Mi’kma’ki, the ancestral and unceded territory of the Mi’kmaq People, who are part of the Wabanaki (Dawnland Confederacy). Our relationship to this place is one of a visiting scientist, learning from its waters. Our commitment is to move beyond words by ensuring scientific findings are shared publicly and by actively seeking to work alongside and learn from the Mi’kmaq communities who have stewarded these lands and waters since time immemorial. We acknowledge their enduring sovereignty, knowledge, and contributions, past, present, and future, and will strive to ensure our actions help care for this place in a spirit of partnership.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof_HAL %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof_HAL <- bind_rows(emof_HAL, new_rows)
+
+write.csv(emof_HAL, "obis_grdi_hal_coi_emof_updated1.csv")
+
+
+#----------------------------------------------------------------------------------------------------------
+
+#AEIP PEI COI
+
+dna_PEI <- read.csv("C:/Users/HEADK/Desktop/OBIS_prep/obis_pei_coi-2_dnaderiveddata.csv")
+emof_PEI <- read.csv("C:/Users/HEADK/Desktop/OBIS_prep/obis_pei_coi-2_emof.csv")
+
+dna_PEI <- dna_PEI %>%
+  mutate(otu_db = "BOLD") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+write.csv(dna_PEI, "obis_pei_coi-2_dnaderiveddata.csv")
+
+emof_PEI <- emof_PEI %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "This work has taken place in Mi’kma’ki, the ancestral and unceded territory of the Mi’kmaq People, who are part of the Wabanaki (Dawnland Confederacy). Our relationship to this place is one of a visiting scientist, learning from its waters. Our commitment is to move beyond words by ensuring scientific findings are shared publicly and by actively seeking to work alongside and learn from the Mi’kmaq communities who have stewarded these lands and waters since time immemorial. We acknowledge their enduring sovereignty, knowledge, and contributions, past, present, and future, and will strive to ensure our actions help care for this place in a spirit of partnership.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof_PEI %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof_PEI <- bind_rows(emof_PEI, new_rows)
+
+write.csv(emof_PEI, "obis_pei_coi-2_emof.csv")
+
+
+#AEIP PEI 18S
+
+dna_PEI <- read.csv("C:/Users/HEADK/Desktop/OBIS_prep/obis_pei_18s-2_dnaderiveddata.csv")
+emof_PEI <- read.csv("C:/Users/HEADK/Desktop/OBIS_prep/obis_lobster_18s-2_emof.csv")
+
+dna_PEI <- dna_PEI %>%
+  mutate(otu_db = "SYLVA") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+emof_PEI <- emof_PEI %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "This work has taken place in Mi’kma’ki, the ancestral and unceded territory of the Mi’kmaq People, who are part of the Wabanaki (Dawnland Confederacy). Our relationship to this place is one of a visiting scientist, learning from its waters. Our commitment is to move beyond words by ensuring scientific findings are shared publicly and by actively seeking to work alongside and learn from the Mi’kmaq communities who have stewarded these lands and waters since time immemorial. We acknowledge their enduring sovereignty, knowledge, and contributions, past, present, and future, and will strive to ensure our actions help care for this place in a spirit of partnership.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof_PEI %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof_PEI <- bind_rows(emof_PEI, new_rows)
+
+#write csv files
+
+write.csv(dna_PEI, "obis_pei_18s-2_dnaderiveddata.csv")
+write.csv(emof_PEI, "obis_pei_18s-2_emof.csv")
+
+
+#----------------------------------------------------------------------------------------------------------
+
+
+#GRDI Iqaluit 12S
+
+dna <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_12S_Iqaluit_Run02_10-Feb-25/13_otu_database/obis_grdi_iqa_12s_dnaderiveddata_updated.csv")
+emof <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_12S_Iqaluit_Run02_10-Feb-25/13_otu_database/obis_grdi_iqa_12s_emof_updated.csv")
+
+dna <- dna %>%
+  mutate(otu_db = "MitoFish 12S Barque") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+
+
+emof <- emof %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "We acknowledge that this research was conducted on the unceded and unsurrendered traditional territories of the Métis peoples (Churchill Estuary-Hudson Bay); and the Inuit homelands of Inuit Nunangat including: Nunatsiavut (NL-Labrador Shelves), Nunavik (Southern Hudson Strait), and Nunavut (Baffin Bay/Davis Strait, North Baffin Fjords). Arctic data collections were funded by ArcticNet, Polar Knowledge Canada, DFO (Aquatic Invasive Species Monitoring Program, Strategic Program for Ecosystem-Based Research and Advice [SPERA], Ocean Protection Plan [OPP] Coastal Environmental Baseline Program, Arctic Science Funds, GRDI), Nunavut Wildlife Management Board, Nunavik Marine Region Wildlife Board, and World Wildlife Funds to KH and ALR. Field accommodations and/or logistic support during Arctic field campaigns were provided by Churchill Northern Studies Centre, Glencore-Raglan, Baffinland Iron and Vale Mines, NRCan (Polar Continental Shelf program), Nunatsiavut Government, Environment and Climate Change Canada, and Government of Nunavut MV Nuliajuk.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof <- bind_rows(emof, new_rows)
+
+#write csv files
+
+write.csv(dna, "obis_grdi_iqa_12s_dnaderiveddata_updated.csv")
+write.csv(emof, "obis_grdi_iqa_12s_emof_updated.csv")
+
+
+
+#GRDI Iqaluit 16S
+
+dna <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_16S_Iqaluit_Run04_10-Feb-25/13_otu_database/obis_grdi_iqa_16s_dnaderiveddata.csv")
+emof <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_16S_Iqaluit_Run04_10-Feb-25/13_otu_database/obis_grdi_iqa_16s_emof.csv")
+
+dna <- dna %>%
+  mutate(otu_db = "16S Barque") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+
+
+emof <- emof %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "We acknowledge that this research was conducted on the unceded and unsurrendered traditional territories of the Métis peoples (Churchill Estuary-Hudson Bay); and the Inuit homelands of Inuit Nunangat including: Nunatsiavut (NL-Labrador Shelves), Nunavik (Southern Hudson Strait), and Nunavut (Baffin Bay/Davis Strait, North Baffin Fjords). Arctic data collections were funded by ArcticNet, Polar Knowledge Canada, DFO (Aquatic Invasive Species Monitoring Program, Strategic Program for Ecosystem-Based Research and Advice [SPERA], Ocean Protection Plan [OPP] Coastal Environmental Baseline Program, Arctic Science Funds, GRDI), Nunavut Wildlife Management Board, Nunavik Marine Region Wildlife Board, and World Wildlife Funds to KH and ALR. Field accommodations and/or logistic support during Arctic field campaigns were provided by Churchill Northern Studies Centre, Glencore-Raglan, Baffinland Iron and Vale Mines, NRCan (Polar Continental Shelf program), Nunatsiavut Government, Environment and Climate Change Canada, and Government of Nunavut MV Nuliajuk.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof <- bind_rows(emof, new_rows)
+
+#write csv files
+
+write.csv(dna, "obis_grdi_iqa_16s_dnaderiveddata.csv")
+write.csv(emof, "obis_grdi_iqa_16s_emof.csv")
+
+
+
+#GRDI Iqaluit 18S
+
+dna <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_18S-2_Iqaluit_Run02_10-Feb-25/13_otu_database/obis_grdi_iqa_18s_dnaderiveddata.csv")
+emof <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_18S-2_Iqaluit_Run02_10-Feb-25/13_otu_database/obis_grdi_iqa_18s_emof.csv")
+
+dna <- dna %>%
+  mutate(otu_db = "SYLVA") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+
+
+emof <- emof %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "We acknowledge that this research was conducted on the unceded and unsurrendered traditional territories of the Métis peoples (Churchill Estuary-Hudson Bay); and the Inuit homelands of Inuit Nunangat including: Nunatsiavut (NL-Labrador Shelves), Nunavik (Southern Hudson Strait), and Nunavut (Baffin Bay/Davis Strait, North Baffin Fjords). Arctic data collections were funded by ArcticNet, Polar Knowledge Canada, DFO (Aquatic Invasive Species Monitoring Program, Strategic Program for Ecosystem-Based Research and Advice [SPERA], Ocean Protection Plan [OPP] Coastal Environmental Baseline Program, Arctic Science Funds, GRDI), Nunavut Wildlife Management Board, Nunavik Marine Region Wildlife Board, and World Wildlife Funds to KH and ALR. Field accommodations and/or logistic support during Arctic field campaigns were provided by Churchill Northern Studies Centre, Glencore-Raglan, Baffinland Iron and Vale Mines, NRCan (Polar Continental Shelf program), Nunatsiavut Government, Environment and Climate Change Canada, and Government of Nunavut MV Nuliajuk.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof <- bind_rows(emof, new_rows)
+
+#write csv files
+
+write.csv(dna, "obis_grdi_iqa_18s_dnaderiveddata.csv")
+write.csv(emof, "obis_grdi_iqa_18s_emof.csv")
+
+
+#GRDI Iqaluit COI
+
+dna <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/COI-1_Iqaluit_Run02_17-Oct-22/13_otu_database/obis_grdi_iqa_coi_dnaderiveddata.csv")
+emof <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/COI-1_Iqaluit_Run02_17-Oct-22/13_otu_database/obis_grdi_iqa_coi_emof.csv")
+
+dna <- dna %>%
+  mutate(otu_db = "BOLD") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+
+
+emof <- emof %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "We acknowledge that this research was conducted on the unceded and unsurrendered traditional territories of the Métis peoples (Churchill Estuary-Hudson Bay); and the Inuit homelands of Inuit Nunangat including: Nunatsiavut (NL-Labrador Shelves), Nunavik (Southern Hudson Strait), and Nunavut (Baffin Bay/Davis Strait, North Baffin Fjords). Arctic data collections were funded by ArcticNet, Polar Knowledge Canada, DFO (Aquatic Invasive Species Monitoring Program, Strategic Program for Ecosystem-Based Research and Advice [SPERA], Ocean Protection Plan [OPP] Coastal Environmental Baseline Program, Arctic Science Funds, GRDI), Nunavut Wildlife Management Board, Nunavik Marine Region Wildlife Board, and World Wildlife Funds to KH and ALR. Field accommodations and/or logistic support during Arctic field campaigns were provided by Churchill Northern Studies Centre, Glencore-Raglan, Baffinland Iron and Vale Mines, NRCan (Polar Continental Shelf program), Nunatsiavut Government, Environment and Climate Change Canada, and Government of Nunavut MV Nuliajuk.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof <- bind_rows(emof, new_rows)
+
+#write csv files
+
+write.csv(dna, "obis_grdi_iqa_coi_dnaderiveddata.csv")
+write.csv(emof, "obis_grdi_iqa_coi_emof.csv")
+
+#------------------------------------------------------------------------------------------------------
+
+#GRDI BoF 16S
+
+
+dna <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_16S_BoF_Run10_07-Feb-25/13_otu_database/obis_grdi_bof_16s_dnaderiveddata.csv")
+emof <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_16S_BoF_Run10_07-Feb-25/13_otu_database/obis_grdi_bof_16s_emof.csv")
+
+dna <- dna %>%
+  mutate(otu_db = "16S Barque") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+
+
+emof <- emof %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "We acknowledge that this work has taken place on the unceded, ancestral territory of the Passamaquoddy, Mi'kma'ki, Wabanaki (Dawnland Confederacy), N’dakina (Abenaki / Abénaquis) peoples. Our commitment to this place is rooted in the act of acknowledgement—of these nations, their languages of Passamaquoddy, Maliseet-Passamaquoddy, Mi'kmaq, and the enduring Peace and Friendship Treaties. In the spirit of these treaties, our stewardship is an action: to ensure the data from these waters is shared publicly, accompanied by this acknowledgement, so that care for this marine protected area is informed by both science and a respectful relationship to the Indigenous lands and waters that sustain us all.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof <- bind_rows(emof, new_rows)
+
+#write csv files
+
+write.csv(dna, "obis_grdi_bof_16s_dnaderiveddata.csv")
+write.csv(emof, "obis_grdi_bof_16s_emof.csv")
+
+
+
+#GRDI BoF 12S
+
+
+dna <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_12S_BoF_Run05_06-Feb-25/13_otu_database/obis_grdi_bof_12s_dnaderiveddata_updated.csv")
+emof <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222_12S_BoF_Run05_06-Feb-25/13_otu_database/obis_grdi_bof_12s_emof_updated.csv")
+
+dna <- dna %>%
+  mutate(otu_db = "MitoFish 12S Barque") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+
+
+emof <- emof %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "We acknowledge that this work has taken place on the unceded, ancestral territory of the Passamaquoddy, Mi'kma'ki, Wabanaki (Dawnland Confederacy), N’dakina (Abenaki / Abénaquis) peoples. Our commitment to this place is rooted in the act of acknowledgement—of these nations, their languages of Passamaquoddy, Maliseet-Passamaquoddy, Mi'kmaq, and the enduring Peace and Friendship Treaties. In the spirit of these treaties, our stewardship is an action: to ensure the data from these waters is shared publicly, accompanied by this acknowledgement, so that care for this marine protected area is informed by both science and a respectful relationship to the Indigenous lands and waters that sustain us all.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof <- bind_rows(emof, new_rows)
+
+#write csv files
+
+write.csv(dna, "obis_grdi_bof_12s_dnaderiveddata_updated.csv")
+write.csv(emof, "obis_grdi_bof_12s_emof_updated.csv")
+
+
+
+#GRDI BoF 18S
+
+
+dna <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222 18S-2 Run03 04-Feb-25/13_otu_database/obis_grdi_bof_18s_dnaderiveddata.csv")
+emof <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/APC0222 18S-2 Run03 04-Feb-25/13_otu_database/obis_grdi_bof_18s_emof.csv")
+
+dna <- dna %>%
+  mutate(otu_db = "SYLVA") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+
+
+emof <- emof %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "We acknowledge that this work has taken place on the unceded, ancestral territory of the Passamaquoddy, Mi'kma'ki, Wabanaki (Dawnland Confederacy), N’dakina (Abenaki / Abénaquis) peoples. Our commitment to this place is rooted in the act of acknowledgement—of these nations, their languages of Passamaquoddy, Maliseet-Passamaquoddy, Mi'kmaq, and the enduring Peace and Friendship Treaties. In the spirit of these treaties, our stewardship is an action: to ensure the data from these waters is shared publicly, accompanied by this acknowledgement, so that care for this marine protected area is informed by both science and a respectful relationship to the Indigenous lands and waters that sustain us all.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof <- bind_rows(emof, new_rows)
+
+#write csv files
+
+write.csv(dna, "obis_grdi_bof_18s_dnaderiveddata.csv")
+write.csv(emof, "obis_grdi_bof_18s_emof.csv")
+
+
+
+#GRDI BoF COI
+
+
+dna <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/COI-1_BoF_Run02_20-Sep-22/13_otu_database/obis_grdi_bof_coi_dnaderiveddata.csv")
+emof <- read.csv("C:/Users/HEADK/Desktop/eDNA_ABL data/APC0222/COI-1_BoF_Run02_20-Sep-22/13_otu_database/obis_grdi_bof_coi_emof.csv")
+
+dna <- dna %>%
+  mutate(otu_db = "BOLD") %>%
+  select(-ref_db, -otu_seq_comp_appr)
+
+dna <- dna %>%
+  filter(target_gene == "COI")
+
+emof <- emof %>%
+  mutate(
+    measurementValue = ifelse(
+      measurementType == "LClabel",
+      "We acknowledge that this work has taken place on the unceded, ancestral territory of the Passamaquoddy, Mi'kma'ki, Wabanaki (Dawnland Confederacy), N’dakina (Abenaki / Abénaquis) peoples. Our commitment to this place is rooted in the act of acknowledgement—of these nations, their languages of Passamaquoddy, Maliseet-Passamaquoddy, Mi'kmaq, and the enduring Peace and Friendship Treaties. In the spirit of these treaties, our stewardship is an action: to ensure the data from these waters is shared publicly, accompanied by this acknowledgement, so that care for this marine protected area is informed by both science and a respectful relationship to the Indigenous lands and waters that sustain us all.",
+      measurementValue
+    )
+  )
+
+
+new_rows <- emof %>%
+  distinct(occurrenceID) %>%
+  mutate(
+    measurementType      = "tax_assign_cat",
+    measurementValue     = "VSEARCH",
+    measurementTypeID    = "https://github.com/FAIR-eDNA/FAIRe_checklist",
+    measurementUnit      = NA_character_,
+    measurementValueID   = NA_character_,
+    measurementUnitID    = NA_character_,
+    measurementRemarks   = NA_character_
+  )
+
+emof <- bind_rows(emof, new_rows)
+
+#write csv files
+
+write.csv(dna, "obis_grdi_bof_coi_dnaderiveddata.csv")
+write.csv(emof, "obis_grdi_bof_coi_emof.csv")
