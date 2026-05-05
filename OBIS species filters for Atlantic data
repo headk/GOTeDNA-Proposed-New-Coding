@@ -1,0 +1,93 @@
+cdedna <- read_csv("C:/Users/HEADK/Desktop/OBIS_GRDI_Hal_COI_occurrence_cleaned_updated2.csv")
+
+sort(unique(cdedna$scientificName)) #253 unique species
+
+bad.species <- c("Ovis aries", "Homo sapiens", "Canis lupus","Capra hircus",
+                 "Bos taurus", "Sus scrofa", "Felis catus","Baikalospongia intermedia","Cyprinus carpio", 
+                 "Cuthona cocoachroma","Rattus norvegicus", 
+                 "Alpheus bellulus", "Rhyacodrilus falciformis", "Castor canadensis", "Botrylloides leachii",
+                 "Anas fulvigula","Baikalospongia dzhegatajensis","Chone mollis", "Gallus gallus",
+                 "Notholca acuminata",
+                 "Spongilla lacustris","Clupea bentincki",
+                 "Bulinus umbilicatus",
+                 "Atalodoris jannae", "Cylindroiulus caeruleocinctus",
+                 "Rana catesbeiana",
+                 "Swartschewskia papyracea", "Procambarus acutus",
+                 "Procambarus geminus",
+                 "Mobula rochebrunei", "Ladislavella elodes", "Gavia immer", "Ephydatia muelleri",
+                 "Suberites domuncula", "Pseudocalanus acuspes", "Polyarthra dolichoptera", 
+                 "Physella ancillaria", "Phyllodoce maculata", "Pholoe baltica", "Ondatra zibethicus",
+                 "Neanura muscorum", "Mytilus galloprovincialis", "Mus musculus", "Micrura varicolor",
+                 "Lubomirskia abietina", "Limnephilus submonilifer", "Keratella cochlearis", "Isotomurus unifasciatus",
+                 "Hydra oligactis", "Halisarca dujardinii", "Fridericia ratzeli", "Eunapius subterraneus", "Eubranchus rustyus",
+                 "Entomobrya nivalis", "Deroceras laeve", "Cylindroiulus latestriatus", "Corbicula fluminea", "Chydorus brevilabris",
+                 "Choreutinula inermis", "Chaetogaster diastrophus", "Centropages hamatus", "Boreochiton beringensis", "Typhlonarke aysoni",
+                 "Sturnus vulgaris", "Slavina appendiculata", "Ravinia querula", "Psychoda alternata", "Pseudosuberites nudus",
+                 "Pseudocalanus mimus", "Pristina aequiseta", "Passerella iliaca", "Nais variabilis", "Nais communis", "Microtus pennsylvanicus",
+                 "Lehmannia marginata", "Isotomurus palustris", "Hydra vulgaris", "Ephydatia fluviatilis", "Corticaria serrata", "Columba livia",
+                 "Clausocalanus lividus", "Chrosomus neogaeus", "Baikalospongia intermedia")
+
+bad.genus <- c("Lumbricus", "Lumbricillus", "Rana", "Larus", "Julus")
+
+cd.filtered <- cdedna %>% filter(!scientificName %in% bad.species, !genus %in% bad.genus) %>% 
+  data.frame()
+
+#write new csv file
+#write.csv(cd.filtered, "OBIS_GRDI_Hal_COI_occurrence_curatedsplist.csv")
+
+write.csv(
+  cd.filtered,
+  "C:/Users/HEADK/Desktop/OBIS_GRDI_Hal_COI_occurrence_curatedsplist.csv"
+)
+
+#Species of potential concern - now put into bad species list above 
+Suberites domuncula 
+Pseudocalanus acuspes
+Polyarthra dolichoptera #freshwater
+Physella ancillaria #freshwater
+Phyllodoce maculata
+Pholoe baltica
+Ondatra zibethicus #muskrat - semi-aquatic 
+Neanura muscorum # moss springtail
+Mytilus galloprovincialis
+Mus musculus #house mouse
+Micrura varicolor
+Lubomirskia abietina # freshwater sponge
+Limnephilus submonilifer #fw caddisfly
+Keratella cochlearis
+Isotomurus unifasciatus #fw springtails
+Hydra oligactis #fw hydra
+Halisarca dujardinii
+Fridericia ratzeli
+Eunapius subterraneus #fw sponge
+Eubranchus rustyus
+Entomobrya nivalis #springtail
+Deroceras laeve #air breathing land slug
+Cylindroiulus latestriatus #millipede
+Corbicula fluminea #fw clam
+Chydorus brevilabris #fw
+Choreutinula inermis #springtail
+Chaetogaster diastrophus #fw
+Centropages hamatus
+Boreochiton beringensis
+Typhlonarke aysoni #native to new zealand
+Sturnus vulgaris # terrestrial starling
+Slavina appendiculata #fw worm 
+Ravinia querula #flesh fly
+Psychoda alternata #fly
+Pseudosuberites nudus
+Pseudocalanus mimus
+Pristina aequiseta
+Passerella iliaca # sparrow
+Nais variabilis #fw worm
+Nais communis
+Microtus pennsylvanicus #vole
+Lehmannia marginata #landslug
+Isotomurus palustris #springtail
+Hydra vulgaris #fw polyp
+Ephydatia fluviatilis #fw spnge
+Corticaria serrata #beetle
+Columba livia #dove
+Clausocalanus lividus #questionable
+Chrosomus neogaeus #dace 
+Baikalospongia intermedia
