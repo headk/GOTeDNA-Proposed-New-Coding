@@ -1,4 +1,4 @@
-#Code for Halifax 2021-2022 and 2023 COI datasets for OBIS
+#Code for Halifax 2021-2023 COI datasets for OBIS - ONLY use the 2021_23 data - most recently analyzed
 
 install.packages("readr")
 library(readr)
