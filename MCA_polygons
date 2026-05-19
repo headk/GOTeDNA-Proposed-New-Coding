@@ -1,0 +1,236 @@
+#load libraries
+library(sf)
+library(dplyr)
+library(leaflet)
+library(leaflet.extras)
+library(arcgislayers)
+library(tidyr)
+library(ggplot2)
+library(scico)
+library(wesanderson)
+library(htmltools)
+library(shiny)
+library(htmlwidgets)
+library(DT)
+library(shinyjs)
+library(stringr)
+library(openxlsx)
+
+#Load the Canadian MPA Network Shapefiles and planning regions extracted from the Canadian Database of Protected and Conserved Areas
+gdb_path <- "C:/Users/HEADK/Desktop/ProtectedConservedArea_2024.gdb"
+
+#See what layers are inside the GDB
+st_layers(gdb_path)
+
+mpa_all <- st_read(gdb_path, layer = "ProtectedConservedArea_2024")
+
+names(mpa_all)
+
+# 1. Filter to marine biome
+mpa_marine <- mpa_all %>%
+  filter(BIOME == "M")
+
+mpa_marine_wgs <- st_transform(mpa_marine, 4326)
+
+#leaflet map of all the MCT polygons (not filtered to Maritimes)
+leaflet(mpa_marine_wgs) %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+  addPolygons(
+    weight = 1,
+    fillOpacity = 0.5,
+    popup = ~NAME_E    # English name of the area
+  )
+
+#Continue to filter
+
+# Filter to marine biome and active areas
+mpa_marine <- mpa_all %>%
+  filter(
+    BIOME == "M",
+    is.na(DELISTYEAR)
+  )
+
+# Keep any NAME_E containing either phrase
+mpa_targets <- mpa_marine %>%
+  filter(
+    str_detect(NAME_E, regex("Marine Protected|Marine Refuge", ignore_case = TRUE))
+  )
+
+# Export shapefile
+st_write(
+  mpa_targets,
+  "C:/Users/HEADK/Desktop/mpa_targets.shp",
+  delete_layer = TRUE
+)
+
+
+# Transform to WGS84
+mpa_targets_wgs84 <- st_transform(mpa_targets, 4326)
+
+# Map
+leaflet(mpa_targets_wgs84) %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+  addPolygons(
+    weight = 2,
+    fillOpacity = 0.5,
+    popup = ~NAME_E
+  )
+
+
+mpa_targets_wgs84 <- st_transform(mpa_targets, 4326)
+
+st_write(
+  mpa_targets_wgs84,
+  "C:/Users/HEADK/Desktop/mpa_targets_wgs84.shp",
+  delete_layer = TRUE
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-----------------------
+# Filter to marine biome, ignore delisted
+mpa_marine <- mpa_all %>%
+  filter(
+    BIOME == "M",
+    is.na(DELISTYEAR)  # keep only active areas
+  )
+
+#Choose specific sites
+target_names <- c(
+  "Tuvaijuittuq Marine Protected Area",
+  "Tallurutiup Imanga National Marine Conservation Area",
+  "Anguniaqvia niqiqyuam Marine Protected Area",
+  "Tarium Niryutait Marine Protected Area",
+  "SG̲áan K̲ínghlas-Bowie Marine Protected Area",
+  "Gwaii Haanas National Marine Conservation Area Reserve & Haida Heritage Site",
+  "Tang.ɢ̲wan — ḥačxʷiqak — Tsig̱is Marine Protected Area",
+  "Hecate Strait and Queen Charlotte Sound Glass Sponge Reefs Marine Protected Areas",
+  "Laurentian Channel Marine Protected Area",
+  "St. Anns Bank Marine Protected Area",
+  "Gully Marine Protected Area",
+  "Musquash Estuary Marine Protected Area",
+  "Western and Emerald Banks Marine Refuge",
+  "Corsair and Georges Canyons Marine Refuge",
+  "Northeast Channel Marine Refuge",
+  "Eastern Canyons Marine Refuge",
+  "Jordan Basin Marine Refuge"
+)
+
+mpa_targets <- mpa_marine %>%
+  filter(NAME_E %in% target_names)
+
+mpa_targets_wgs84 <- st_transform(mpa_targets, 4326)
+
+leaflet(mpa_targets_wgs84) %>%
+  addProviderTiles("Esri.OceanBasemap") %>%
+  addPolygons(
+    weight      = 2,
+    fillOpacity = 0.5,
+    popup       = ~NAME_E
+  )
+
+
+#Obtain AOI mapping
+
+# 1. Eastern Shore Islands network site polygon
+esi_poly <- st_read("C:/Users/HEADK/Desktop/Nicks Data/EasternShoreIslands_networksite.shp")
+
+st_crs(esi_poly)    # just to check
+
+# transform to WGS84 for leaflet
+esi_poly_wgs <- st_transform(esi_poly, 4326)
+
+#Unzip and read the Fundian Channel-BrownsBank shapefile
+fcbb_poly <- st_read("C:/Users/HEADK/Desktop/Nicks Data/FCBB_Proposed_MPA_Boundary_zones.shp")
+
+st_crs(fcbb_poly)
+
+fcbb_poly_wgs <- st_transform(fcbb_poly, 4326)
+
+
+mpa_marine <- mpa_all %>%
+  filter(BIOME == "M", is.na(DELISTYEAR))
+
+mpa_target_names <- c(
+  "St. Anns Bank Marine Protected Area",
+  "Musquash Estuary Marine Protected Area",
+  "Gully Marine Protected Area"
+)
+
+mpa_targets <- mpa_marine %>%
+  filter(NAME_E %in% mpa_target_names)
+
+mpa_targets_wgs <- st_transform(mpa_targets, 4326)
+
+
+#Combine all polygons into one sf object
+
+# Add a common name/type to each polygon set
+mpa_polys <- mpa_targets_wgs %>%
+  st_geometry() %>%                     # keep just geometry
+  st_as_sf() %>%                        # convert back to sf
+  mutate(
+    site_name = mpa_targets_wgs$NAME_E,
+    site_type = "MPA"
+  )
+
+esi_polys <- esi_poly_wgs %>%
+  st_geometry() %>%
+  st_as_sf() %>%
+  mutate(
+    site_name = "Eastern Shore Islands AOI",
+    site_type = "AOI"
+  )
+
+fcbb_polys <- fcbb_poly_wgs %>%
+  st_geometry() %>%
+  st_as_sf() %>%
+  mutate(
+    site_name = "Fundian Channel–Browns Bank AOI",
+    site_type = "AOI"
+  )
+
+# Bind everything together
+all_polys <- bind_rows(
+  mpa_polys,
+  esi_polys,
+  fcbb_polys
+)
+
+# Ensure it's still sf
+all_polys <- st_as_sf(all_polys)
+
+all_polys
+
+# 1) clean polygons without losing pieces
+all_polys_click <- all_polys %>%
+  st_make_valid() %>%
+  st_collection_extract("POLYGON") %>%
+  filter(!st_is_empty(.)) %>%
+  group_by(site_type, site_name) %>%
+  summarise(geometry = st_union(st_geometry(.)), .groups = "drop") %>%
+  st_as_sf()
+
+
+#-----------------------------------------------------------------------------
+
+setwd("C:/Users/HEADK/Desktop/OBIS_prep")
+
+SABGULFUN_24_COI <- read.csv("OBIS_MCT_SABGULFUN2024_COI_occurrence.csv")
+SABGULFUN_24_12S <- read.csv("OBIS_MCT_SABGULFUN2024_12S_occurrence.csv")
+
+MUSQ16_12S <- read.csv("OBIS_MCT_Musq16_occurrence_FORMAP_notcomplete.csv")
+MUSQ20_12S <- read.csv("OBIS_MCT_Musq20_occurrence_FORMAP_notcomplete.csv")
+MUSQ24_12S <- read.csv("OBIS_MCT_Musq24_occurrence_FORMAP_notcomplete.csv")
