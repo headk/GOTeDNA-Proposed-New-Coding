@@ -39,8 +39,16 @@ names(mpa_all)
 mpa_marine <- mpa_all %>%
   filter(
     REALM == "Marine",
-    STATUS == "Designated",
-    DESIG_ENG == "Marine Protected Area" | "Marine refuge" |
+    STATUS == "Designated"
   )
 
 unique(mpa_marine$DESIG_ENG)
+
+mpa_marine <- mpa_all %>%
+  filter(
+    REALM == "Marine",
+    STATUS == "Designated",
+    PRNT_ISO3 == "CAD"
+  )
+
+DESIG_ENG == "Marine Protected Area" | "Marine Reserve/Marine Protected Area" |
