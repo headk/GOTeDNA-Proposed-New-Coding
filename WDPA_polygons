@@ -36,27 +36,53 @@ mpa_all <- st_read(polygon_shp)
 
 #names(mpa_all)
 
-# mpa_marine <- mpa_all %>%
-#   filter(
-#     REALM == "Marine",
-#     STATUS == "Designated",
-#     str_detect(
-#       DESIG_ENG,
-#       regex(
-#         "Protected|Reserve|Marine Park|Sanctuary|Refuge",
-#         ignore_case = TRUE
-#       )
-#     )
-#   )
-
 mpa_marine <- mpa_all %>%
   filter(
     REALM == "Marine",
-    STATUS == "Designated"
+    STATUS == "Designated",
+    ISO3 != "CAN",
+    str_detect(
+      DESIG_ENG,
+      regex(
+        "Protected|Reserve|Marine Park|Refuge",
+        ignore_case = TRUE
+      )
+    )
   )
 
+
+# Export shapefile
+st_write(
+  mpa_marine,
+  "C:/Users/HEADK/Desktop/mpa_marine.shp",
+  delete_layer = TRUE
+)
+
+st_write(
+  mpa_marine,
+  "C:/Users/HEADK/Desktop/mpa_marine.gpkg",
+  delete_dsn = TRUE
+)
+
+#simpler shapefiles
+
+library(rmapshaper)
+
+mpa_simple <- ms_simplify(
+  mpa_marine,
+  keep = 0.05,
+  keep_shapes = TRUE
+)
+
+st_write(
+  mpa_simple,
+  "C:/Users/HEADK/Desktop/mpa_marine.gpkg",
+  delete_dsn = TRUE
+)
+
+
 # Transform to WGS84
-mpa_marine_wgs84 <- st_transform(mpa_marine, 4326)
+mpa_marine_wgs84 <- st_transform(mpa_simple, 4326)
 
 # Map
 leaflet(mpa_marine_wgs84) %>%
