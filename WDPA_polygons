@@ -1,0 +1,46 @@
+library(sf)
+library(dplyr)
+library(stringr)
+library(leaflet)
+
+wdpa_path <- "C:/Users/HEADK/Desktop/WDPA_May2026_Public_shp.zip"
+wdpa_dir  <- "C:/Users/HEADK/Desktop/WDPA_May2026_Public_shp"
+
+# Unzip main WDPA zip
+unzip(wdpa_path, exdir = wdpa_dir)
+
+# Unzip the split shapefile zip files
+nested_zips <- list.files(
+  wdpa_dir,
+  pattern = "\\.zip$",
+  full.names = TRUE
+)
+
+for (z in nested_zips) {
+  unzip(z, exdir = wdpa_dir)
+}
+
+# Find shapefiles
+shps <- list.files(
+  wdpa_dir,
+  pattern = "\\.shp$",
+  recursive = TRUE,
+  full.names = TRUE
+)
+
+shps
+
+polygon_shp <- "C:/Users/HEADK/Desktop/WDPA_May2026_Public_shp/WDPA_May2026_Public_shp-polygons.shp"
+
+mpa_all <- st_read(polygon_shp)
+
+names(mpa_all)
+
+mpa_marine <- mpa_all %>%
+  filter(
+    REALM == "Marine",
+    STATUS == "Designated",
+    DESIG_ENG == "Marine Protected Area" | "Marine refuge" |
+  )
+
+unique(mpa_marine$DESIG_ENG)
