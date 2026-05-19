@@ -53,7 +53,7 @@ mpa_marine <- mpa_all %>%
 # Keep any NAME_E containing either phrase
 mpa_targets <- mpa_marine %>%
   filter(
-    str_detect(NAME_E, regex("Marine Protected|Marine Refuge", ignore_case = TRUE))
+    str_detect(NAME_E, regex("Protected|Refuge|Reserve|Marine Park", ignore_case = TRUE))
   )
 
 # Export shapefile
@@ -63,6 +63,11 @@ st_write(
   delete_layer = TRUE
 )
 
+st_write(
+  mpa_targets,
+  "C:/Users/HEADK/Desktop/mpa_targets.gpkg",
+  delete_dsn = TRUE
+)
 
 # Transform to WGS84
 mpa_targets_wgs84 <- st_transform(mpa_targets, 4326)
@@ -100,8 +105,8 @@ st_write(
 
 
 -----------------------
-# Filter to marine biome, ignore delisted
-mpa_marine <- mpa_all %>%
+  # Filter to marine biome, ignore delisted
+  mpa_marine <- mpa_all %>%
   filter(
     BIOME == "M",
     is.na(DELISTYEAR)  # keep only active areas
